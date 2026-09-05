@@ -11,10 +11,14 @@
             "id": "bdcbb107f92cfb13",
             "type": "leaf",
             "state": {
-              "type": "graph",
-              "state": {},
-              "icon": "lucide-git-fork",
-              "title": "Граф"
+              "type": "markdown",
+              "state": {
+                "file": "11_Задача_агенту.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "11_Задача_агенту"
             }
           }
         ]
@@ -186,6 +190,7 @@
   },
   "active": "bdcbb107f92cfb13",
   "lastOpenFiles": [
+    "06_Идеи.md",
     "21_Project_Docs/ASTRO_MODELER_SETUP.md",
     "Codex_Решение_Проблем.md",
     "02_Решения — копия.md",
@@ -193,7 +198,6 @@
     "20_SplitDoc/TASK_HISTORY.md",
     "21_Project_Docs/PROJECT_CONCEPT.md",
     "10_Правила_агента.md",
-    "06_Идеи.md",
     "05_Очередь_задач.md",
     "04_Архитектура.md",
     "03_Открытые_вопросы.md",

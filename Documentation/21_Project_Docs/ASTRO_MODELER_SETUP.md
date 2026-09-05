@@ -88,6 +88,6 @@ New-Item -ItemType Directory -Force -Path $env:BLENDER_USER_SCRIPTS,$env:BLENDER
 & '<BLENDER_EXECUTABLE>' --background --factory-startup --python-exit-code 1 --python Tests/blender_install.py
 ```
 
-Это изолированная проверка установки; она не сохраняет пользовательские preferences. В TASK 003 вызов из обычного текстового диалога текущего Codex app и постоянная установка в рабочую пользовательскую сессию Blender не проверялись. Подтверждена цепочка через MCP-клиент установленного Codex app-server и реальный открытый Blender, без имитации `bpy`.
+Это изолированная проверка установки; она не сохраняет пользовательские preferences. Первоначально проверялась цепочка через MCP-клиент установленного Codex app-server и реальный открытый Blender, без имитации `bpy`. После этого пользователь установил Astro Modeler в рабочий Blender, нажал Start Integration и подтвердил создание `Cube` по команде из обычного текстового Codex. TASK 003 принята пользователем; итог синхронизирован в `Documentation/20_SplitDoc/TASK_HISTORY.md`. Постоянная конфигурация MCP агентом не изменялась.
 
 `.venv/`, `.runtime/`, `dist/` и Python caches исключены из Git. Runtime-скрипты служат только тестам; они не добавляют публичные инструменты чтения сцены, Python execution или screenshots.

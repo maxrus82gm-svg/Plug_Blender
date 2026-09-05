@@ -18,7 +18,7 @@ AI должен взаимодействовать с Blender через реа�
 
 ## 4. Первый vertical prototype
 
-Первый технический milestone: **Codex → MCP → Blender → Create Cube**. В TASK 003 установленный Codex app-server обнаружил и дважды вызвал одну контролируемую операцию; реальные кубы подтверждены в открытом Blender Scene. Объём и ограничения теста — в `Documentation/21_Project_Docs/ASTRO_MODELER_SETUP.md`.
+Первый технический milestone: **Codex → MCP → Blender → Create Cube**. В TASK 003 установленный Codex app-server обнаружил и дважды вызвал одну контролируемую операцию; реальные кубы подтверждены в открытом Blender Scene. Затем пользователь подтвердил создание Cube в рабочем Blender по команде из обычного текстового Codex и принял TASK 003. Объём проверок — в `Documentation/21_Project_Docs/ASTRO_MODELER_SETUP.md`.
 
 После review Create Cube следующий предлагаемый тест — получить список объектов сцены и определить текущий selected object. Эта работа не выполнялась и запускается отдельной постановкой. Основной интерфейс прототипа — существующий диалог Codex; внутри Blender только служебная панель запуска/остановки и статуса, без чата или prompt field.
 
