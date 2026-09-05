@@ -5,6 +5,7 @@ The interactive runtime fixture must have finished and released the bridge port.
 """
 
 import json
+from functools import partial
 import os
 from pathlib import Path
 
@@ -22,6 +23,7 @@ assert "FINISHED" in bpy.ops.preferences.addon_enable(module="astro_modeler")
 import astro_modeler
 
 assert Path(astro_modeler.__file__).resolve().is_relative_to(RUNTIME.resolve())
+astro_modeler.Bridge = partial(astro_modeler.Bridge, port=0)
 descriptor = RUNTIME / "install-session.json"
 astro_modeler.start(descriptor)
 assert descriptor.exists()
@@ -53,6 +55,10 @@ else:
     raise AssertionError("Edit Mode must be rejected.")
 bpy.ops.object.mode_set(mode="OBJECT")
 assert len(bpy.context.scene.objects) == 5
+selected = astro_modeler._get_selected_context()
+assert selected["active_object"]["name"] == "Cube.002"
+assert len(selected["selected_objects"][0]["matrix_world"]) == 3
+assert "3d_cursor" in selected
 
 astro_modeler.start(descriptor)
 astro_modeler.stop()
@@ -62,4 +68,4 @@ assert "FINISHED" in bpy.ops.preferences.addon_disable(module="astro_modeler")
 assert astro_modeler._bridge is None
 assert not descriptor.exists()
 assert not bpy.app.timers.is_registered(astro_modeler._tick)
-print("PASS: ZIP install/enable; load disconnect; restart/stop/disable cleanup; Edit Mode rejection; saved cubes match both Codex results")
+print("PASS: ZIP install/enable and selected context; load disconnect; restart/stop/disable cleanup; Edit Mode rejection; saved cubes match both Codex results")

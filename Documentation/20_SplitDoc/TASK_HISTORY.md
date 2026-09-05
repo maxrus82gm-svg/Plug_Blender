@@ -64,6 +64,24 @@
 
 **Статус исполнения:** выполнено; AGENT REPORT находится в `Documentation/11_Задача_агенту.md`.
 
-**Итог review:** ожидается review пользователя / ChatGPT; TASK 004 не объявлена PASS агентом.
+**Итог review:** PASS синхронизирован 2026-09-05 по прямому указанию пользователя «TASK 004 считать PASS» при запуске TASK 005. Это фиксация пользовательского решения.
 
-**Следующий шаг:** review TASK 004. TASK 005 — только кандидат с неутверждённым scope, не запущена.
+**Следующий шаг на завершение TASK 004:** TASK 005 была кандидатом; затем запущена отдельной постановкой Selected Context v1 + Compact Geometry Principle, без полного Scene dump.
+
+## 2026-09-05 — TASK 005 — Selected Context v1 + Compact Geometry Principle
+
+**Цель:** компактно прочитать selected/active objects, их spatial transform/local axes и 3D Cursor через MCP; тяжёлую геометрию оставить в Blender.
+
+**Сделано:** добавлен один read-only `get_selected_context()` рядом с `create_cube()`, с тем же bridge/main-thread timer. Выбран один affine world transform 3 × 4 на объект, для Cursor — позиция и quaternion. Пустое выделение и active вне selection различаются. Ответ ограничен 1 MiB без молчаливой обрезки, запрос остаётся ограничен 4096 байтами. Mesh data не читается. В идеях и решениях закреплён компактный подход к будущему локальному анализу; сам анализ не реализован. TASK 004 синхронизирована как PASS.
+
+**Проверки:** 12 unit/socket tests, SDK STDIO discovery обоих tools и read-only hint, 8 сценариев selection с повторами в GUI Blender 5.0.1, MESH/EMPTY/LIGHT, parented/sheared/reflected transform и нулевой масштаб, Cursor вне origin с поворотом. Mesh с 8 и 1 000 000 вершин дал одинаковый structured result (589 байт JSON в тесте); 100 выбранных объектов вернулись полностью. Установленный Codex app-server прочитал context дважды. Два реальных Create Cube вызова, 20 main-thread/read-only проверок, ZIP install/lifecycle, compileall и pip check пройдены.
+
+**Ограничения:** проверена отдельная factory GUI session с приватным test endpoint, пользовательский Blender не изменялся. Новый tool в обычном диалоге рабочей сессии требует обновления add-on и ещё не проверялся. Сохранённые MCP settings, dependencies и способ запуска не менялись; готов пересобранный ZIP с прежним именем. 10-миллионный Mesh отдельно не тестировался; полный Scene и Mesh analysis не реализованы.
+
+**Review corrections:** отсутствуют для TASK 005.
+
+**Статус исполнения:** выполнено; AGENT REPORT находится в `Documentation/11_Задача_агенту.md`.
+
+**Итог review:** ожидается review пользователя / ChatGPT; TASK 005 не объявлена PASS агентом.
+
+**Следующий шаг:** review и ручная проверка Selected Context в рабочей сессии. Следующая TASK не запущена.

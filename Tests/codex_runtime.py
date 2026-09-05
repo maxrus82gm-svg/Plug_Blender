@@ -2,10 +2,12 @@
 
 An ephemeral protocol test context is discarded on exit. This does not create
 a user-facing task or change saved Codex settings. Requires a running session
-started by Tests/blender_runtime.py. Exactly two create_cube calls are made.
+started by Tests/blender_runtime.py. By default, two create_cube calls are made.
+With --selected-context, read the selected-context fixture twice instead.
 """
 
 import asyncio
+import argparse
 import json
 from pathlib import Path
 import shutil
@@ -14,13 +16,16 @@ ROOT = Path(__file__).resolve().parents[1]
 RUNTIME = ROOT / ".runtime"
 
 
-async def main():
+async def main(selected_context=False):
     executable = shutil.which("codex")
     if not executable:
         raise RuntimeError("Codex CLI is not available on PATH.")
+    session_name = "selected-session.json" if selected_context else "astro-session.json"
+    result_name = "codex-selected-result.json" if selected_context else "codex-result.json"
+    tool_name = "get_selected_context" if selected_context else "create_cube"
     config = {
         "command": str(ROOT / ".venv/Scripts/python.exe"),
-        "args": [str(ROOT / "MCP/server.py"), "--session-file", str(RUNTIME / "astro-session.json")],
+        "args": [str(ROOT / "MCP/server.py"), "--session-file", str(RUNTIME / session_name)],
         "cwd": str(ROOT), "required": True,
     }
     log_path = RUNTIME / "codex-app-server.log"
@@ -57,20 +62,23 @@ async def main():
             entries = status.get("data", [])
             server = next(entry for entry in entries if entry["name"] == "astro_modeler")
             names = list(server["tools"])
-            assert names == ["create_cube"], names
+            assert set(names) == {"create_cube", "get_selected_context"}, names
             evidence = {"client": "installed Codex app-server", "ephemeral": True, "model_turns": 0, "tools": names, "calls": []}
             for _ in range(2):
-                result = await send("mcpServer/tool/call", {"threadId": context_id, "server": "astro_modeler", "tool": "create_cube", "arguments": {}})
+                result = await send("mcpServer/tool/call", {"threadId": context_id, "server": "astro_modeler", "tool": tool_name, "arguments": {}})
                 evidence["calls"].append(result)
                 # Persist each response before considering the next non-idempotent call.
-                (RUNTIME / "codex-result.json").write_text(json.dumps(evidence, indent=2, ensure_ascii=False), encoding="utf-8")
-                print(json.dumps(result, ensure_ascii=False), flush=True)
+                (RUNTIME / result_name).write_text(json.dumps(evidence, indent=2, ensure_ascii=False), encoding="utf-8")
+                if not selected_context:
+                    print(json.dumps(result, ensure_ascii=False), flush=True)
                 structured = result.get("structuredContent") or result.get("result", {}).get("structuredContent")
                 if structured is None:
                     contents = result.get("content", [])
                     structured = json.loads(next(item["text"] for item in contents if item.get("type") == "text"))
                 if not structured.get("success"):
                     raise RuntimeError("Blender did not confirm success. No automatic retry.")
+                if selected_context:
+                    print(json.dumps({"success": True, "active_object": structured["context"]["active_object"], "selected_names": [obj["name"] for obj in structured["context"]["selected_objects"]]}, ensure_ascii=False), flush=True)
         finally:
             if process.returncode is None:
                 process.terminate()
@@ -78,4 +86,6 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--selected-context", action="store_true", help="Read the selected-context fixture twice; do not create cubes")
+    asyncio.run(main(parser.parse_args().selected_context))

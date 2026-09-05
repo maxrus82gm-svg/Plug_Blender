@@ -11,6 +11,8 @@ import time
 HOST = "127.0.0.1"
 PORT = 55881
 MAX_BYTES = 4096
+MAX_RESPONSE_BYTES = 1024 * 1024
+IO_CHUNK = 65536
 MAX_CLIENTS = 4
 CLIENT_TIMEOUT = 5.0
 
@@ -20,8 +22,9 @@ def default_session_file():
 
 
 class Bridge:
-    def __init__(self, create_cube, session_file=None, port=PORT):
+    def __init__(self, create_cube, session_file=None, port=PORT, get_selected_context=None):
         self.create_cube = create_cube
+        self.get_selected_context = get_selected_context
         self.session_file = Path(session_file or default_session_file()).resolve()
         self.port = port
         self.listener = None
@@ -71,8 +74,12 @@ class Bridge:
             token = request["token"]
             if not isinstance(token, str) or not secrets.compare_digest(token, self.token):
                 raise ValueError("Invalid session token. Restart the integration connection.")
+            if request["command"] == "get_selected_context":
+                if self.get_selected_context is None:
+                    raise RuntimeError("Selected context unavailable. Update the Astro Modeler add-on.")
+                return {"success": True, "context": self.get_selected_context(), "message": "Selected context read."}
             if request["command"] != "create_cube":
-                raise ValueError("Only create_cube is supported.")
+                raise ValueError("Only create_cube and get_selected_context are supported.")
             name = self.create_cube()
             return {"success": True, "object_name": name, "message": "Cube created in the current scene."}
         except Exception as exc:
@@ -119,8 +126,15 @@ class Bridge:
                         continue
                     result = self._request(line)
                     executed = True
-                    state["output"] = (json.dumps(result, ensure_ascii=False) + "\n").encode("utf-8")
-                sent = client.send(state["output"])
+                    try:
+                        output = (json.dumps(result, ensure_ascii=False, allow_nan=False, separators=(",", ":")) + "\n").encode("utf-8")
+                    except (ValueError, TypeError):
+                        output = b'{"success":false,"message":"Non-finite or invalid Blender context; no context returned."}\n'
+                    if len(output) > MAX_RESPONSE_BYTES:
+                        # Never silently truncate the selected object list.
+                        output = b'{"success":false,"message":"Context exceeds 1 MiB; select fewer objects."}\n'
+                    state["output"] = output
+                sent = client.send(state["output"][:IO_CHUNK])
                 state["output"] = state["output"][sent:]
                 if not state["output"]:
                     self._close_client(client)

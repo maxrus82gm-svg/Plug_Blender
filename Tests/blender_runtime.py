@@ -5,6 +5,7 @@ processes or modifies user preferences. Runtime evidence is local and ignored.
 """
 
 import json
+from functools import partial
 from pathlib import Path
 import sys
 
@@ -17,6 +18,8 @@ sys.path.insert(0, str(ROOT / "Plugins/AstroModeler"))
 import astro_modeler
 
 astro_modeler.register()
+# A private test descriptor and ephemeral port leave the user's integration alone.
+astro_modeler.Bridge = partial(astro_modeler.Bridge, port=0)
 astro_modeler.start(RUNTIME / "astro-session.json")
 initial = set(bpy.context.scene.objects.keys())
 

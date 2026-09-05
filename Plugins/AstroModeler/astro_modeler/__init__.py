@@ -6,7 +6,7 @@ bl_info = {
     "version": (0, 1, 0),
     "blender": (5, 0, 0),
     "location": "3D View > Sidebar > Astro Modeler",
-    "description": "Minimal local MCP Create Cube prototype",
+    "description": "Local MCP Create Cube and Selected Context prototype",
     "category": "3D View",
 }
 
@@ -32,6 +32,32 @@ def _create_cube():
     return obj.name
 
 
+def _get_selected_context():
+    """Read only transforms/context. Never access Object.data or mesh elements.
+
+    matrix_world contains three ROWS of the affine world matrix. Its last
+    column is the pivot; columns 0..2 are transformed local X/Y/Z, including
+    scale, reflection and shear. The omitted last row is always [0, 0, 0, 1].
+    """
+    context = bpy.context
+    active = context.view_layer.objects.active
+    cursor = context.scene.cursor
+    return {
+        "mode": context.mode,
+        "active_object": {"name": active.name, "type": active.type} if active else None,
+        "selected_objects": [
+            {"name": obj.name, "type": obj.type,
+             "matrix_world": [list(row) for row in obj.matrix_world.copy()][:3]}
+            for obj in sorted(context.selected_objects, key=lambda obj: obj.name)
+        ],
+        "3d_cursor": {
+            "position": list(cursor.location),
+            # Matrix respects the cursor's current Euler/quaternion/axis-angle mode.
+            "orientation_wxyz": list(cursor.matrix.to_quaternion().normalized()),
+        },
+    }
+
+
 def _tick():
     global _last_message, _timer_ticks
     if _bridge is None:
@@ -50,7 +76,7 @@ def start(session_file=None):
     global _bridge, _last_message
     if _bridge is not None:
         raise RuntimeError("Astro Modeler is already running.")
-    bridge = Bridge(_create_cube, session_file=session_file)
+    bridge = Bridge(_create_cube, session_file=session_file, get_selected_context=_get_selected_context)
     try:
         bridge.start()
         _bridge = bridge
@@ -116,7 +142,7 @@ class ASTRO_MODELER_PT_status(bpy.types.Panel):
             layout.operator("astro_modeler.start")
         else:
             layout.operator("astro_modeler.stop")
-            layout.label(text="One local session / create_cube")
+            layout.label(text="One local session / 2 tools")
 
 
 _classes = (ASTRO_MODELER_OT_start, ASTRO_MODELER_OT_stop, ASTRO_MODELER_PT_status)

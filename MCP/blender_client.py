@@ -6,12 +6,14 @@ import socket
 import tempfile
 import time
 
+MAX_RESPONSE_BYTES = 1024 * 1024
+
 
 def default_session_file():
     return Path(tempfile.gettempdir()) / "astro_modeler" / "session.json"
 
 
-def create_cube(session_file=None):
+def _request(command, session_file=None):
     try:
         path = Path(session_file or default_session_file())
         if path.stat().st_size > 4096:
@@ -28,7 +30,7 @@ def create_cube(session_file=None):
     try:
         deadline = time.monotonic() + 5.0
         with socket.create_connection(("127.0.0.1", session["port"]), timeout=5.0) as client:
-            request = {"command": "create_cube", "token": session["token"]}
+            request = {"command": command, "token": session["token"]}
             client.sendall((json.dumps(request) + "\n").encode("utf-8"))
             response = b""
             while b"\n" not in response:
@@ -36,16 +38,29 @@ def create_cube(session_file=None):
                 if remaining <= 0:
                     raise TimeoutError("Bridge response timed out")
                 client.settimeout(remaining)
-                chunk = client.recv(4097)
-                if not chunk or len(response) + len(chunk) > 4096:
+                chunk = client.recv(65536)
+                if not chunk or len(response) + len(chunk) > MAX_RESPONSE_BYTES:
                     raise ValueError("Missing or oversized bridge response")
                 response += chunk
         result = json.loads(response.split(b"\n", 1)[0].decode("utf-8"))
         if (not isinstance(result, dict) or type(result.get("success")) is not bool
                 or not isinstance(result.get("message"), str)
-                or (result["success"] and not isinstance(result.get("object_name"), str))):
+                or (result["success"] and command == "create_cube" and not isinstance(result.get("object_name"), str))
+                or (result["success"] and command == "get_selected_context" and not isinstance(result.get("context"), dict))):
             raise ValueError("Invalid bridge result")
         return result
     except (OSError, ValueError):
+        if command == "get_selected_context":
+            return {"success": False, "message": "Could not read selected context: Blender connection failed, timed out, or returned an invalid response."}
         # Creating an object is not idempotent. Never retry after a lost response.
         return {"success": False, "object_name": None, "message": "Blender connection failed or timed out; the outcome may be unknown. Inspect the scene before retrying, then reconnect Astro Modeler."}
+
+
+def create_cube(session_file=None):
+    result = _request("create_cube", session_file)
+    return {"success": result["success"], "object_name": result.get("object_name"), "message": result["message"]}
+
+
+def get_selected_context(session_file=None):
+    result = _request("get_selected_context", session_file)
+    return {"success": result["success"], "context": result.get("context"), "message": result["message"]}

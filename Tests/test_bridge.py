@@ -1,6 +1,7 @@
 """Protocol/connection checks without importing bpy or changing a Blender scene."""
 
 import importlib.util
+from concurrent.futures import ThreadPoolExecutor
 import json
 from pathlib import Path
 import socket
@@ -14,7 +15,7 @@ spec = importlib.util.spec_from_file_location("astro_bridge", ROOT / "Plugins/As
 bridge_module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(bridge_module)
 sys.path.insert(0, str(ROOT / "MCP"))
-from blender_client import create_cube
+from blender_client import create_cube, get_selected_context
 
 
 class BridgeTests(unittest.TestCase):
@@ -111,6 +112,52 @@ class BridgeTests(unittest.TestCase):
         self.path.write_text(json.dumps(self.session))
         self.assertFalse(create_cube(self.path)["success"])
         self.assertEqual(self.names, [])
+
+    def test_context_read_is_separate_from_create_and_accepts_no_extra_fields(self):
+        context = {"mode": "OBJECT", "active_object": None, "selected_objects": [], "3d_cursor": {"position": [0, 0, 0], "orientation_wxyz": [1, 0, 0, 0]}}
+        self.bridge.get_selected_context = lambda: context
+        for _ in range(2):
+            result = self.exchange(self.request(command="get_selected_context"))
+            self.assertTrue(result["success"])
+            self.assertEqual(result["context"], context)
+        for changes in ({"token": "bad"}, {"objects": "all"}):
+            self.assertFalse(self.exchange(self.request(command="get_selected_context", **changes))["success"])
+        self.assertEqual(self.names, [])
+
+    def test_real_client_reads_context_larger_than_old_4k_limit(self):
+        objects = [{"name": f"Object.{index:03}", "type": "EMPTY", "matrix_world": [[1, 0, 0, index], [0, 1, 0, 0], [0, 0, 1, 0]]} for index in range(100)]
+        context = {"mode": "OBJECT", "active_object": None, "selected_objects": objects, "3d_cursor": {"position": [0, 0, 0], "orientation_wxyz": [1, 0, 0, 0]}}
+        self.bridge.get_selected_context = lambda: context
+        self.assertGreater(len(json.dumps(context)), 4096)
+        # This external Python test uses a client thread; the Blender add-on does not.
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(get_selected_context, self.path)
+            deadline = time.monotonic() + 3
+            while not future.done() and time.monotonic() < deadline:
+                self.bridge.poll()
+                time.sleep(0.001)
+            result = future.result(timeout=2)
+        self.assertTrue(result["success"])
+        self.assertEqual(result["context"], context)
+        self.assertEqual(self.names, [])
+
+    def test_oversized_or_nonfinite_context_returns_error_without_partial_list(self):
+        for context in ({"value": "x" * bridge_module.MAX_RESPONSE_BYTES}, {"value": float("nan")}):
+            self.bridge.get_selected_context = lambda: context
+            result = self.exchange(self.request(command="get_selected_context"))
+            self.assertFalse(result["success"])
+            self.assertNotIn("context", result)
+        self.assertEqual(self.names, [])
+
+    def test_context_unavailable_and_missing_session_are_clear_errors(self):
+        result = self.exchange(self.request(command="get_selected_context"))
+        self.assertFalse(result["success"])
+        self.assertIn("Update", result["message"])
+        self.bridge.stop()
+        result = get_selected_context(self.path)
+        self.assertFalse(result["success"])
+        self.assertIsNone(result["context"])
+        self.assertNotIn("object_name", result)
 
 
 if __name__ == "__main__":
