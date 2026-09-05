@@ -1,0 +1,2 @@
+# Official SDK, stable v1 API; installed only in the project-local venv.
+mcp==1.29.1

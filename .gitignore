@@ -1,0 +1,6 @@
+# Project-local dependencies and generated prototype artifacts.
+.venv/
+.runtime/
+dist/
+__pycache__/
+*.py[cod]
