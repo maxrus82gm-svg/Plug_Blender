@@ -56,7 +56,7 @@ async def main():
         async with ClientSession(reader, writer) as session:
             await session.initialize()
             names = {t.name for t in (await session.list_tools()).tools}
-            assert names == {"create_cube", "get_selected_context", "create_box_at_cursor"}
+            assert names == {"create_cube", "get_selected_context", "create_box_at_cursor", "post_modeling_note"}
             for label, position, rotation, sizes in (
                 ("origin", [0, 0, 0], [0, 0, 0], [20, 10, 5]),
                 ("translated", [7, -3, 2.5], [0, 0, 0], [3, 4, 7]),
@@ -100,6 +100,30 @@ async def main():
             context = (await session.call_tool("get_selected_context", {})).structuredContent
             assert context["context"]["active_object"]["name"] == result.structuredContent["object_name"]
             evidence["cases"].append("Create Cube / Selected Context regression")
+            await control("prepare_feedback")
+            before = await control("snapshot")
+            for index, status in enumerate(("OK", "WARNING", "BLOCKED", "OK", "WARNING", "OK")):
+                details = ("Не хватает измерения толщины. Рекомендация: локальный анализ. " * 20) if index == 1 else ""
+                result = await session.call_tool("post_modeling_note", {"status": status, "summary": f"Итог {index}", "details": details})
+                assert result.structuredContent["success"], result
+            feedback = await control("feedback_state")
+            assert [n["summary"] for n in feedback["notes"]] == [f"Итог {i}" for i in range(5, 0, -1)]
+            assert len(feedback["notes"][-1]["details"]) > 1000 and not feedback["dirty"]
+            for args in ({"status": "BAD", "summary": "Итог"}, {"status": "OK", "summary": ""}, {"status": "OK", "summary": " "}):
+                result = await session.call_tool("post_modeling_note", args)
+                assert result.isError or not result.structuredContent["success"]
+            result = await session.call_tool("post_modeling_note", {"status": "WARNING", "summary": "Итог", "details": "界" * 1500})
+            assert not result.structuredContent["success"] and "4096 UTF-8 bytes" in result.structuredContent["message"]
+            assert (await control("feedback_state"))["note_checks"] == 6
+            assert await control("snapshot") == before
+            process = await asyncio.create_subprocess_exec(sys.executable, str(ROOT / "Tests/codex_runtime.py"), "--note")
+            assert await process.wait() == 0
+            feedback = await control("feedback_state")
+            assert feedback["notes"][0]["summary"] == "Проверка канала Codex" and feedback["note_checks"] == 7
+            assert not feedback["dirty"]
+            await control("feedback_save_load")
+            assert not (await control("feedback_state"))["notes"]
+            evidence["cases"].append("Feedback: 7 notes incl. Codex, Russian >1000 chars, rolling five, validation/byte limit, unchanged scene/dirty, no persisted history on load")
     await control("finish")
     evidence["cases"].append("ZIP install/enable, stop/restart, load disconnect, disable cleanup")
     evidence["events"] = json.loads((RUNTIME / "box-events.json").read_text(encoding="utf-8"))

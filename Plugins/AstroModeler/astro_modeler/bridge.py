@@ -34,11 +34,21 @@ def default_session_file():
     return Path(tempfile.gettempdir()) / "astro_modeler" / "session.json"
 
 
+def validate_note(status, summary, details):
+    if not isinstance(status, str) or status not in {"OK", "WARNING", "BLOCKED"}:
+        raise ValueError("Note status must be OK, WARNING or BLOCKED.")
+    if not isinstance(summary, str) or not summary.strip() or len(summary) > 240:
+        raise ValueError("Note summary must contain 1-240 characters and not be blank.")
+    if not isinstance(details, str) or len(details) > 1800:
+        raise ValueError("Note details must be a string of at most 1800 characters.")
+
+
 class Bridge:
-    def __init__(self, create_cube, session_file=None, port=PORT, get_selected_context=None, create_box_at_cursor=None):
+    def __init__(self, create_cube, session_file=None, port=PORT, get_selected_context=None, create_box_at_cursor=None, post_modeling_note=None):
         self.create_cube = create_cube
         self.get_selected_context = get_selected_context
         self.create_box_at_cursor = create_box_at_cursor
+        self.post_modeling_note = post_modeling_note
         self.session_file = Path(session_file or default_session_file()).resolve()
         self.port = port
         self.listener = None
@@ -88,11 +98,22 @@ class Bridge:
             expected = {"command", "token"}
             if request.get("command") == "create_box_at_cursor":
                 expected |= {"size_x", "size_y", "size_z"}
+            if request.get("command") == "post_modeling_note":
+                expected |= {"status", "summary"}
+                if "details" in request:
+                    expected.add("details")
             if set(request) != expected:
                 raise ValueError("Unexpected or missing command fields.")
             token = request["token"]
             if not isinstance(token, str) or not secrets.compare_digest(token, self.token):
                 raise ValueError("Invalid session token. Restart the integration connection.")
+            if request["command"] == "post_modeling_note":
+                args = (request["status"], request["summary"], request.get("details", ""))
+                validate_note(*args)
+                if self.post_modeling_note is None:
+                    raise RuntimeError("Agent Feedback unavailable. Update the Astro Modeler add-on.")
+                self.post_modeling_note(*args)
+                return {"success": True, "message": "Agent feedback posted to Blender."}
             if request["command"] == "create_box_at_cursor":
                 sizes = validate_box_sizes(*(request[key] for key in ("size_x", "size_y", "size_z")))
                 if self.create_box_at_cursor is None:
@@ -104,7 +125,7 @@ class Bridge:
                     raise RuntimeError("Selected context unavailable. Update the Astro Modeler add-on.")
                 return {"success": True, "context": self.get_selected_context(), "message": "Selected context read."}
             if request["command"] != "create_cube":
-                raise ValueError("Only create_cube, get_selected_context and create_box_at_cursor are supported.")
+                raise ValueError("Only create_cube, get_selected_context, create_box_at_cursor and post_modeling_note are supported.")
             name = self.create_cube()
             return {"success": True, "object_name": name, "message": "Cube created in the current scene."}
         except Exception as exc:

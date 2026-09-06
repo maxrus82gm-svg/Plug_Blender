@@ -1,7 +1,7 @@
 """STDIO MCP server. stdout is reserved for the official SDK protocol."""
 
 import argparse
-from typing import Annotated, TypedDict
+from typing import Annotated, Literal, TypedDict
 from pydantic import Field
 
 from mcp.server.fastmcp import FastMCP
@@ -10,6 +10,7 @@ from mcp.types import ToolAnnotations
 from blender_client import create_cube as request_cube
 from blender_client import get_selected_context as request_selected_context
 from blender_client import create_box_at_cursor as request_box
+from blender_client import post_modeling_note as request_note
 
 PositiveSize = Annotated[float, Field(strict=True, gt=0, allow_inf_nan=False)]
 
@@ -52,16 +53,34 @@ class CubeResult(TypedDict):
     message: str
 
 
+class NoteResult(TypedDict):
+    success: bool
+    message: str
+
+
 def make_server(session_file=None):
     server = FastMCP(
         "Astro Modeler",
-        instructions="Use create_cube, create_box_at_cursor or read-only get_selected_context in the explicitly connected Blender session. Heavy geometry stays in Blender. Never automatically retry an uncertain creating operation; inspect the scene first.",
+        instructions="Use controlled tools in the connected Blender session; heavy geometry stays in Blender. Never auto-retry uncertain creating operations. After substantive mutating modelling operations, call post_modeling_note with brief user-facing engineering feedback, not chain-of-thought; explain missing capabilities when relevant. Also post on user request. Posting a note does not require another note.",
     )
 
     @server.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False))
     def create_cube() -> CubeResult:
         """Create a 2-unit cube at the world origin in the connected Blender scene. Requires Object Mode."""
         return request_cube(session_file)
+
+    @server.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False))
+    def post_modeling_note(status: Literal["OK", "WARNING", "BLOCKED"],
+                           summary: Annotated[str, Field(strict=True, min_length=1, max_length=240)],
+                           details: Annotated[str, Field(strict=True, max_length=1800)] = "") -> NoteResult:
+        """Post engineering feedback to the Blender Sidebar, not internal reasoning.
+
+        Runtime history holds five notes, newest first; no scene/undo changes.
+        Entire UTF-8 request including token and newline must fit 4096 bytes.
+        Use a short nonblank summary; details may explain a problem, missing
+        capability, recommendation or question. Does not trigger another note.
+        """
+        return request_note(status, summary, details, session_file)
 
     @server.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False))
     def create_box_at_cursor(size_x: PositiveSize, size_y: PositiveSize, size_z: PositiveSize) -> CubeResult:

@@ -120,10 +120,16 @@ VERDICT: PASS.
 
 **Цель / результат:** создан controlled tool Box в позиции Cursor, с размерами по world X/Y/Z и единичным Scale. Уточнение пользователя отменило наследование ориентации Cursor. Проверены пять Box в отдельном GUI Blender 5.0.1 с текущим ZIP (один через Codex app-server), invalid input / Edit Mode, старые tools и lifecycle; 14 unit/socket tests и SDK discovery пройдены. Контракт и воспроизведение — `Documentation/04_Архитектура.md`. Внешний PASS TASK 007 синхронизирован.
 
-**Corrections:** review corrections отсутствуют; изменение ориентации получено во время исполнения. **INDEPENDENT REVIEW:** AWAITING INDEPENDENT REVIEW.
+**Corrections:** review corrections отсутствуют; изменение ориентации получено во время исполнения. **INDEPENDENT REVIEW:** PASS; внешний verdict синхронизирован по TASK 011.
 
 ## 2026-09-06 — TASK 010 — Research-First Workflow: подготовленный технический контекст перед реализацией
 
 **Цель / результат:** подготовка контекста и выборочное чтение закреплены в START; аналитическая роль Astra и точечный fallback — в правилах агента; развитие базы из подтверждённых практических знаний — в DOCUMENTATION_RULES. Shared runtime test harness записан кандидатом в очереди, без реализации. TASK 009 не запускалась.
+
+**Corrections:** отсутствуют. **INDEPENDENT REVIEW:** PASS; внешний verdict синхронизирован по TASK 011.
+
+## 2026-09-06 — TASK 011 — Agent Feedback v1: технический канал Astra → Blender
+
+**Цель / результат:** добавлен post_modeling_note и runtime rolling history в Sidebar. Контракт и результаты — `Documentation/04_Архитектура.md`. Расширена fixture TASK 008: семь notes, Codex call, неизменность сцены/dirty, byte limit, lifecycle и регрессия. START требует закрытия предыдущего этапа перед самостоятельной новой TASK с явным пользовательским исключением. TASK 008 и TASK 010 синхронизированы как PASS; TASK 009 не запускалась и не имеет PASS/FAIL, идея продолжена в TASK 011.
 
 **Corrections:** отсутствуют. **INDEPENDENT REVIEW:** AWAITING INDEPENDENT REVIEW.

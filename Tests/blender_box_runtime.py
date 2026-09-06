@@ -27,6 +27,7 @@ astro_modeler.Bridge = partial(astro_modeler.Bridge, port=0)
 descriptor = RUNTIME / "box-session.json"
 events = []
 main_thread = threading.get_ident()
+note_checks = []
 
 
 def fingerprint(obj):
@@ -80,6 +81,29 @@ def checked_box(x, y, z):
 
 original_box = astro_modeler._create_box_at_cursor
 astro_modeler._create_box_at_cursor = checked_box
+
+
+def checked_note(status, summary, details=""):
+    assert threading.get_ident() == main_thread
+    before = {obj.name: fingerprint(obj) for obj in bpy.data.objects}
+    cursor = list(map(list, bpy.context.scene.cursor.matrix))
+    selected = astro_modeler._get_selected_context()
+    dirty = bpy.data.is_dirty
+    data_counts = (len(bpy.data.scenes), len(bpy.data.meshes), len(bpy.data.texts))
+    properties = [dict(block.items()) for block in (*bpy.data.scenes, *bpy.data.objects)]
+    original_note(status, summary, details)
+    assert {obj.name: fingerprint(obj) for obj in bpy.data.objects} == before
+    assert list(map(list, bpy.context.scene.cursor.matrix)) == cursor
+    assert astro_modeler._get_selected_context() == selected
+    assert bpy.data.is_dirty == dirty
+    assert data_counts == (len(bpy.data.scenes), len(bpy.data.meshes), len(bpy.data.texts))
+    assert properties == [dict(block.items()) for block in (*bpy.data.scenes, *bpy.data.objects)]
+    assert astro_modeler._feedback[0] == dict(status=status, summary=summary, details=details)
+    note_checks.append(summary)
+
+
+original_note = astro_modeler._post_modeling_note
+astro_modeler._post_modeling_note = checked_note
 astro_modeler.start(descriptor)
 assert bpy.app.timers.is_registered(astro_modeler._tick)
 nonce = None
@@ -117,10 +141,30 @@ def control():
             obj = bpy.context.object
             assert obj.name.startswith("Cube") and len(obj.data.vertices) == 8
             assert tuple(obj.location) == (0, 0, 0) and tuple(obj.dimensions) == (2, 2, 2)
+        elif action == "prepare_feedback":
+            assert not astro_modeler._feedback, "Geometry callbacks must not auto-post feedback"
+            bpy.ops.wm.save_as_mainfile(filepath=str(RUNTIME / "feedback-smoke.blend"))
+            assert not bpy.data.is_dirty
+            for window in bpy.context.window_manager.windows:
+                for area in window.screen.areas:
+                    if area.type == "VIEW_3D":
+                        area.spaces.active.show_region_ui = True
+                        area.tag_redraw()
+        elif action == "feedback_state":
+            pass
+        elif action == "feedback_save_load":
+            assert astro_modeler._feedback
+            bpy.ops.wm.save_as_mainfile(filepath=str(RUNTIME / "feedback-smoke.blend"))
+            bpy.ops.wm.open_mainfile(filepath=str(RUNTIME / "feedback-smoke.blend"))
+            assert not astro_modeler._feedback and not bpy.data.is_dirty
+            assert not descriptor.exists()
+            astro_modeler.start(descriptor)
+            assert not astro_modeler._feedback
         elif action == "finish":
             astro_modeler.stop()
             assert not descriptor.exists() and not bpy.app.timers.is_registered(astro_modeler._tick)
             astro_modeler.start(descriptor)
+            assert not astro_modeler._feedback
             bpy.ops.wm.save_as_mainfile(filepath=str(RUNTIME / "box-smoke.blend"))
             bpy.ops.wm.open_mainfile(filepath=str(RUNTIME / "box-smoke.blend"))
             assert astro_modeler._bridge is None and not descriptor.exists()
@@ -132,6 +176,8 @@ def control():
         else:
             assert action == "snapshot"
         result = {"nonce": nonce, "success": True, **state()}
+        if action == "feedback_state":
+            result.update(notes=list(astro_modeler._feedback), note_checks=len(note_checks), dirty=bpy.data.is_dirty)
     except Exception as exc:
         result = {"nonce": nonce, "success": False, "error": repr(exc)}
     (RUNTIME / "box-state.json").write_text(json.dumps(result), encoding="utf-8")

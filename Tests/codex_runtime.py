@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 RUNTIME = ROOT / ".runtime"
 
 
-async def main(selected_context=False, box=False):
+async def main(selected_context=False, box=False, note=False):
     executable = shutil.which("codex")
     if not executable:
         raise RuntimeError("Codex CLI is not available on PATH.")
@@ -25,6 +25,8 @@ async def main(selected_context=False, box=False):
     tool_name = "get_selected_context" if selected_context else "create_cube"
     if box:
         session_name, result_name, tool_name = "box-session.json", "codex-box-result.json", "create_box_at_cursor"
+    if note:
+        session_name, result_name, tool_name = "box-session.json", "codex-note-result.json", "post_modeling_note"
     config = {
         "command": str(ROOT / ".venv/Scripts/python.exe"),
         "args": [str(ROOT / "MCP/server.py"), "--session-file", str(RUNTIME / session_name)],
@@ -64,10 +66,10 @@ async def main(selected_context=False, box=False):
             entries = status.get("data", [])
             server = next(entry for entry in entries if entry["name"] == "astro_modeler")
             names = list(server["tools"])
-            assert set(names) == {"create_cube", "get_selected_context", "create_box_at_cursor"}, names
+            assert set(names) == {"create_cube", "get_selected_context", "create_box_at_cursor", "post_modeling_note"}, names
             evidence = {"client": "installed Codex app-server", "ephemeral": True, "model_turns": 0, "tools": names, "calls": []}
-            for _ in range(1 if box else 2):
-                result = await send("mcpServer/tool/call", {"threadId": context_id, "server": "astro_modeler", "tool": tool_name, "arguments": {"size_x": 20, "size_y": 10, "size_z": 5} if box else {}})
+            for _ in range(1 if box or note else 2):
+                result = await send("mcpServer/tool/call", {"threadId": context_id, "server": "astro_modeler", "tool": tool_name, "arguments": {"status": "WARNING", "summary": "Проверка канала Codex", "details": "Не хватает локального измерения толщины."} if note else ({"size_x": 20, "size_y": 10, "size_z": 5} if box else {})})
                 evidence["calls"].append(result)
                 # Persist each response before considering the next non-idempotent call.
                 (RUNTIME / result_name).write_text(json.dumps(evidence, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -91,5 +93,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--selected-context", action="store_true", help="Read the selected-context fixture twice; do not create cubes")
     parser.add_argument("--box", action="store_true", help="Create one Box in the isolated box fixture")
+    parser.add_argument("--note", action="store_true", help="Post one note in the same isolated box fixture")
     args = parser.parse_args()
-    asyncio.run(main(args.selected_context, args.box))
+    asyncio.run(main(args.selected_context, args.box, args.note))

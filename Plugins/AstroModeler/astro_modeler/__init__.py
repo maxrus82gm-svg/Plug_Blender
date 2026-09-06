@@ -13,13 +13,30 @@ bl_info = {
 import bpy
 import math
 import struct
+import textwrap
+from collections import deque
 from bpy.app.handlers import persistent
 
-from .bridge import Bridge, validate_box_sizes
+from .bridge import Bridge, validate_box_sizes, validate_note
 
 _bridge = None
 _last_message = "Stopped"
 _timer_ticks = 0
+_feedback = deque(maxlen=5)
+
+
+def _redraw_feedback():
+    for window in bpy.context.window_manager.windows:
+        for area in window.screen.areas:
+            if area.type == "VIEW_3D":
+                area.tag_redraw()
+
+
+def _post_modeling_note(status, summary, details=""):
+    """Runtime Python state only: no data blocks, scene mutation or undo operator."""
+    validate_note(status, summary, details)
+    _feedback.appendleft({"status": status, "summary": summary, "details": details})
+    _redraw_feedback()
 
 
 def _create_cube():
@@ -133,7 +150,7 @@ def start(session_file=None):
     if _bridge is not None:
         raise RuntimeError("Astro Modeler is already running.")
     bridge = Bridge(_create_cube, session_file=session_file, get_selected_context=_get_selected_context,
-                    create_box_at_cursor=_create_box_at_cursor)
+                    create_box_at_cursor=_create_box_at_cursor, post_modeling_note=_post_modeling_note)
     try:
         bridge.start()
         _bridge = bridge
@@ -143,6 +160,8 @@ def start(session_file=None):
         _bridge = None
         raise
     _last_message = "Listening on localhost"
+    _feedback.clear()
+    _redraw_feedback()
 
 
 def stop(unregister_timer=True):
@@ -158,6 +177,7 @@ def stop(unregister_timer=True):
 def _on_load(_):
     global _last_message
     stop()
+    _feedback.clear()
     _last_message = "Stopped after file load; reconnect explicitly"
 
 
@@ -199,7 +219,17 @@ class ASTRO_MODELER_PT_status(bpy.types.Panel):
             layout.operator("astro_modeler.start")
         else:
             layout.operator("astro_modeler.stop")
-            layout.label(text="One local session / 3 tools")
+            layout.label(text="One local session / 4 tools")
+        layout.separator()
+        layout.label(text="AGENT FEEDBACK")
+        width = max(12, int((context.region.width - 40) / (8 * context.preferences.system.ui_scale)))
+        for note in _feedback:
+            box = layout.box()
+            box.label(text=note["status"])
+            for text in (note["summary"], note["details"]):
+                for paragraph in text.splitlines():
+                    for line in textwrap.wrap(paragraph, width=width) or [""]:
+                        box.label(text=line)
 
 
 _classes = (ASTRO_MODELER_OT_start, ASTRO_MODELER_OT_stop, ASTRO_MODELER_PT_status)
@@ -213,6 +243,7 @@ def register():
 
 def unregister():
     stop()
+    _feedback.clear()
     if _on_load in bpy.app.handlers.load_pre:
         bpy.app.handlers.load_pre.remove(_on_load)
     for cls in reversed(_classes):

@@ -9,13 +9,14 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("astro_bridge", ROOT / "Plugins/AstroModeler/astro_modeler/bridge.py")
 bridge_module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(bridge_module)
 sys.path.insert(0, str(ROOT / "MCP"))
-from blender_client import create_cube, get_selected_context, create_box_at_cursor
+from blender_client import create_cube, get_selected_context, create_box_at_cursor, post_modeling_note
 
 
 class BridgeTests(unittest.TestCase):
@@ -189,6 +190,40 @@ class BridgeTests(unittest.TestCase):
             result = create_box_at_cursor(value, 2, 3, self.path)
             self.assertFalse(result["success"])
             self.assertIn("finite positive", result["message"])
+
+    def test_note_validation_and_command_isolation(self):
+        notes = []
+        self.bridge.post_modeling_note = lambda *args: notes.append(args)
+        for status in ("OK", "WARNING", "BLOCKED"):
+            result = self.exchange(self.request(command="post_modeling_note", status=status, summary="Итог"))
+            self.assertTrue(result["success"])
+        for change in ({"status": "BAD"}, {"summary": " "}, {"summary": ""}, {"details": "x" * 1801}, {"extra": 1}):
+            request = self.request(command="post_modeling_note", status="OK", summary="Итог")
+            self.assertFalse(self.exchange({**request, **change})["success"])
+        self.assertEqual(len(notes), 3)
+        self.assertEqual(self.names, [])
+
+    def test_note_utf8_exact_request_limit_before_connect(self):
+        notes = []
+        self.bridge.post_modeling_note = lambda *args: notes.append(args)
+        request = self.request(command="post_modeling_note", status="OK", summary="Итог", details="")
+        overhead = len((json.dumps(request, ensure_ascii=False) + "\n").encode("utf-8"))
+        available = 4096 - overhead
+        details = "界" * (available // 3) + "x" * (available % 3)
+        self.assertLessEqual(len(details), 1800)
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(post_modeling_note, "OK", "Итог", details, self.path)
+            deadline = time.monotonic() + 3
+            while not future.done() and time.monotonic() < deadline:
+                self.bridge.poll()
+                time.sleep(0.001)
+            self.assertTrue(future.result(timeout=2)["success"])
+        with patch("blender_client.socket.create_connection") as connect:
+            result = post_modeling_note("OK", "Итог", details + "x", self.path)
+            self.assertFalse(result["success"])
+            self.assertIn("4096 UTF-8 bytes", result["message"])
+            connect.assert_not_called()
+        self.assertEqual(notes, [("OK", "Итог", details)])
 
 
 if __name__ == "__main__":
