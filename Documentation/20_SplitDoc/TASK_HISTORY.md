@@ -133,3 +133,11 @@ VERDICT: PASS.
 **Цель / результат:** добавлен post_modeling_note и runtime rolling history в Sidebar. Контракт и результаты — `Documentation/04_Архитектура.md`. Расширена fixture TASK 008: семь notes, Codex call, неизменность сцены/dirty, byte limit, lifecycle и регрессия. START требует закрытия предыдущего этапа перед самостоятельной новой TASK с явным пользовательским исключением. TASK 008 и TASK 010 синхронизированы как PASS; TASK 009 не запускалась и не имеет PASS/FAIL, идея продолжена в TASK 011.
 
 **Corrections:** отсутствуют. **INDEPENDENT REVIEW:** AWAITING INDEPENDENT REVIEW.
+
+## 2026-09-06 — TASK 013 — Agent Feedback Window + bounded diagnostic log
+
+**Цель / результат:** Agent Feedback развёрнут в отдельный Blender N-panel `AGENT FEEDBACK LOG`: статусы/время, full summary, compact details preview с runtime expand/collapse, Clear и newest-first history до 20 clusters. Последовательные точные дубли `status + summary + details` агрегируются с `repeat_count/first_time/last_time`; после другой note начинается новый cluster. Подтверждённые notes сохраняются в ignored compact JSONL до 200 clusters без token/Selected Context; log не читается агентом автоматически. Закреплено stop-on-problem.
+
+**Проверки:** 18 unit/socket tests, SDK discovery четырёх tools, полный установленный-ZIP runtime в изолированном GUI Blender 5.0.1 и реальный GPT-5.6 Sol MEDIUM model turn. Подтверждены `100→1`, разрыв cluster, bounded JSONL, preview/toggle/Clear/lifecycle, неизменность сцены и регрессия tools. Пользователь и ChatGPT визуально подтвердили UI; дальнейшие UX-улучшения отложены.
+
+**Corrections:** до AGENT REPORT добавлены duplicate compaction, compact details UI и stop-on-problem. **INDEPENDENT REVIEW:** AWAITING INDEPENDENT REVIEW.
