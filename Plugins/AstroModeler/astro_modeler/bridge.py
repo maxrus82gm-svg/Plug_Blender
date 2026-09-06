@@ -5,6 +5,8 @@ import math
 import os
 from pathlib import Path
 import secrets
+
+from .modifier_inspector import INSPECTOR_UI_RU
 import socket
 import tempfile
 import time
@@ -144,9 +146,9 @@ class Bridge:
                     result = {"success": True, "context": self.get_selected_context(), "message": "Selected context read."}
                 elif command == "inspect_selected_modifier_changes":
                     if self.inspect_modifier_changes is None:
-                        raise RuntimeError("Modifier Inspector unavailable. Update the Astro Modeler add-on.")
+                        raise RuntimeError(INSPECTOR_UI_RU["feature_unavailable"])
                     result = {"success": True, "inspection": self.inspect_modifier_changes(),
-                              "message": "Deterministic modifier diff read from Blender."}
+                              "message": INSPECTOR_UI_RU["diff_read"]}
                 else:
                     name = self.create_cube()
                     result = {"success": True, "object_name": name, "message": "Cube created in the current scene."}

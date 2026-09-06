@@ -140,7 +140,9 @@ def _request(command, session_file=None, arguments=None):
         if command == "get_selected_context":
             return {"success": False, "message": "Could not read selected context: Blender connection failed, timed out, or returned an invalid response."}
         if command == "inspect_selected_modifier_changes":
-            return {"success": False, "message": "Could not read modifier inspection: Blender connection failed, timed out, or returned an invalid response."}
+            return {"success": False, "message": (
+                "Не удалось прочитать анализ модификатора: соединение с Blender прервано, "
+                "истекло время ожидания или получен неверный ответ.")}
         # Creating an object is not idempotent. Never retry after a lost response.
         return {"success": False, "object_name": None, "message": "Blender connection failed or timed out; the outcome may be unknown. Inspect the scene before retrying, then reconnect Astro Modeler."}
 

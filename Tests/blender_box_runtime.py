@@ -246,6 +246,15 @@ def control():
                 obj.modifiers[1].name = target["modifier_name"]
             (RUNTIME / "modifier-diff.json").write_text(
                 json.dumps(astro_modeler._modifier_result, ensure_ascii=False, indent=2), encoding="utf-8")
+        elif action == "modifier_format":
+            assert astro_modeler.format_display_value(0.10000000149011612) == "0.1"
+            assert astro_modeler.format_display_value(0.003000000026077032) == "0.003"
+            ui = astro_modeler.INSPECTOR_UI_RU
+            assert astro_modeler.ASTRO_MODELER_PT_modifier_inspector.bl_label == "АНАЛИЗ МОДИФИКАТОРОВ"
+            assert astro_modeler.ASTRO_MODELER_OT_get_modifiers.bl_label == "Получить модификаторы"
+            assert astro_modeler.ASTRO_MODELER_OT_compare_modifier.bl_label == "Сравнить параметры"
+            assert ui["default"] == "По умолчанию" and ui["current"] == "Текущее"
+            assert "width" not in ui.values() and "BEVEL" not in ui.values()
         elif action == "clear_activity":
             before = astro_modeler._get_selected_context()
             dirty = bpy.data.is_dirty

@@ -18,7 +18,6 @@ bl_info = {
 import bpy
 import blf
 from datetime import datetime
-import json
 import math
 import struct
 import textwrap
@@ -27,7 +26,7 @@ from collections import deque
 from bpy.app.handlers import persistent
 
 from .bridge import Bridge, validate_box_sizes, validate_note
-from .modifier_inspector import compare_modifier_properties
+from .modifier_inspector import INSPECTOR_UI_RU, compare_modifier_properties, format_display_value
 
 _bridge = None
 _last_message = "Stopped"
@@ -44,7 +43,7 @@ _hud_draw_handle = None
 _hud_timeout_seconds = 3.0
 _modifier_targets = []
 _modifier_result = None
-_inspector_message = "Select an object, then Get Modifiers"
+_inspector_message = INSPECTOR_UI_RU["initial_help"]
 _default_explanation_instruction = (
     "Объясни простым русским языком, что делают изменённые параметры, как текущее "
     "значение отличается от freshly-created Blender default и зачем моделлер мог это "
@@ -204,20 +203,20 @@ def _modifier_enum_items(_self=None, _context=None):
 
 def _active_modifier_object():
     if bpy.context.mode != "OBJECT":
-        raise RuntimeError("Switch to Object Mode before modifier inspection.")
+        raise RuntimeError(INSPECTOR_UI_RU["object_mode_required"])
     obj = bpy.context.view_layer.objects.active
     if obj is None or obj not in bpy.context.selected_objects:
-        raise RuntimeError("Select one active object before modifier inspection.")
+        raise RuntimeError(INSPECTOR_UI_RU["active_object_required"])
     if not hasattr(obj, "modifiers"):
-        raise RuntimeError("The active object does not support modifiers.")
+        raise RuntimeError(INSPECTOR_UI_RU["modifiers_unsupported"])
     return obj
 
 
-def _clear_modifier_inspector(message="Select an object, then Get Modifiers"):
+def _clear_modifier_inspector(message=None):
     global _modifier_result, _inspector_message
     _modifier_targets.clear()
     _modifier_result = None
-    _inspector_message = message
+    _inspector_message = message or INSPECTOR_UI_RU["initial_help"]
     _redraw_feedback()
 
 
@@ -235,9 +234,10 @@ def _get_modifiers():
     settings = _inspector_settings()
     if _modifier_targets:
         settings.modifier_target = "0"
-        _inspector_message = f"Found {len(_modifier_targets)} modifier(s) on {obj.name}"
+        _inspector_message = INSPECTOR_UI_RU["modifiers_found"].format(
+            count=len(_modifier_targets), object_name=obj.name)
     else:
-        _inspector_message = f"No modifiers on {obj.name}"
+        _inspector_message = INSPECTOR_UI_RU["no_modifiers"].format(object_name=obj.name)
     _redraw_feedback()
 
 
@@ -247,15 +247,15 @@ def _resolve_modifier_target():
     try:
         target = _modifier_targets[int(settings.modifier_target)]
     except (ValueError, IndexError):
-        raise RuntimeError("Run Get Modifiers and choose one modifier first.") from None
+        raise RuntimeError(INSPECTOR_UI_RU["choose_modifier_first"]) from None
     if obj.as_pointer() != target["object_pointer"] or obj.name != target["object_name"]:
-        raise RuntimeError("Modifier selection is stale. Run Get Modifiers again.")
+        raise RuntimeError(INSPECTOR_UI_RU["stale_selection"])
     index = target["stack_index"]
     if index >= len(obj.modifiers):
-        raise RuntimeError("Modifier selection is stale. Run Get Modifiers again.")
+        raise RuntimeError(INSPECTOR_UI_RU["stale_selection"])
     modifier = obj.modifiers[index]
     if modifier.name != target["modifier_name"] or modifier.type != target["modifier_type"]:
-        raise RuntimeError("Modifier selection is stale. Run Get Modifiers again.")
+        raise RuntimeError(INSPECTOR_UI_RU["stale_selection"])
     return obj, modifier, target
 
 
@@ -285,19 +285,19 @@ def _compare_selected_modifier():
             cleanup_problem = exc
     if cleanup_problem is not None:
         _modifier_result = None
-        raise RuntimeError(
-            "Temporary cleanup failed for __ASTRO_MODELER_TEMP_OBJECT__ / "
-            f"__ASTRO_MODELER_TEMP_MESH__: {cleanup_problem}")
+        details = ("__ASTRO_MODELER_TEMP_OBJECT__ / "
+                   f"__ASTRO_MODELER_TEMP_MESH__: {cleanup_problem}")
+        raise RuntimeError(INSPECTOR_UI_RU["cleanup_failed"].format(details=details))
     if operation_problem is not None:
-        raise RuntimeError(
-            f"Cannot compare {modifier.type} with a fresh Blender modifier: {operation_problem}") from None
+        raise RuntimeError(INSPECTOR_UI_RU["compare_failed"].format(
+            modifier_type=modifier.type, details=operation_problem)) from None
     _modifier_result = {
         "object_name": obj.name,
         "modifier": {"stack_index": target["stack_index"], "name": modifier.name, "type": modifier.type},
         "changed_properties": changed,
         "limitations": limitations,
     }
-    _inspector_message = f"Changed parameters: {len(changed)}"
+    _inspector_message = INSPECTOR_UI_RU["changed_parameters"].format(count=len(changed))
     _redraw_feedback()
     return _modifier_result
 
@@ -308,16 +308,12 @@ def _inspect_selected_modifier_changes():
             or _modifier_result["modifier"] != {
                 "stack_index": target["stack_index"], "name": target["modifier_name"],
                 "type": target["modifier_type"]}):
-        raise RuntimeError("Run Compare Parameters for the selected modifier first.")
+        raise RuntimeError(INSPECTOR_UI_RU["compare_first"])
     result = dict(_modifier_result)
     settings = _inspector_settings()
     result["explanation_instruction"] = _default_explanation_instruction
     result["user_context"] = settings.explanation_context.strip()
     return result
-
-
-def _format_inspector_value(value):
-    return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
 
 
 def _create_cube():
@@ -461,7 +457,7 @@ def _on_load(_):
     stop()
     _clear_feedback()
     _clear_activity(clear_counts=False)
-    _clear_modifier_inspector("File changed; run Get Modifiers again")
+    _clear_modifier_inspector(INSPECTOR_UI_RU["file_changed"])
     _last_message = "Stopped after file load; reconnect explicitly"
 
 
@@ -527,7 +523,7 @@ class ASTRO_MODELER_OT_clear_activity(bpy.types.Operator):
 
 class ASTRO_MODELER_OT_get_modifiers(bpy.types.Operator):
     bl_idname = "astro_modeler.get_modifiers"
-    bl_label = "Get Modifiers"
+    bl_label = INSPECTOR_UI_RU["get_modifiers"]
 
     def execute(self, context):
         global _inspector_message
@@ -542,7 +538,7 @@ class ASTRO_MODELER_OT_get_modifiers(bpy.types.Operator):
 
 class ASTRO_MODELER_OT_compare_modifier(bpy.types.Operator):
     bl_idname = "astro_modeler.compare_modifier"
-    bl_label = "Compare Parameters"
+    bl_label = INSPECTOR_UI_RU["compare_parameters"]
 
     def execute(self, context):
         global _inspector_message
@@ -570,10 +566,11 @@ class ASTRO_MODELER_PG_activity_settings(bpy.types.PropertyGroup):
 
 
 class ASTRO_MODELER_PG_inspector_settings(bpy.types.PropertyGroup):
-    modifier_target: bpy.props.EnumProperty(name="Modifier", items=_modifier_enum_items)
+    modifier_target: bpy.props.EnumProperty(
+        name=INSPECTOR_UI_RU["modifier"], items=_modifier_enum_items)
     explanation_context: bpy.props.StringProperty(
-        name="Optional Context", maxlen=500,
-        description="Optional guidance added to the standard AI explanation instruction")
+        name=INSPECTOR_UI_RU["context"], maxlen=500,
+        description=INSPECTOR_UI_RU["context_description"])
 
 
 class ASTRO_MODELER_PT_status(bpy.types.Panel):
@@ -674,7 +671,7 @@ class ASTRO_MODELER_PT_activity(bpy.types.Panel):
 
 
 class ASTRO_MODELER_PT_modifier_inspector(bpy.types.Panel):
-    bl_label = "MODIFIER INSPECTOR"
+    bl_label = INSPECTOR_UI_RU["panel_title"]
     bl_idname = "ASTRO_MODELER_PT_modifier_inspector"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
@@ -685,7 +682,7 @@ class ASTRO_MODELER_PT_modifier_inspector(bpy.types.Panel):
         layout = self.layout
         settings = context.window_manager.astro_modeler_inspector_settings
         obj = context.view_layer.objects.active
-        layout.label(text=f"Object: {obj.name if obj else 'None'}")
+        layout.label(text=f'{INSPECTOR_UI_RU["object"]}: {obj.name if obj else INSPECTOR_UI_RU["none"]}')
         layout.operator("astro_modeler.get_modifiers", icon="FILE_REFRESH")
         if _modifier_targets:
             layout.prop(settings, "modifier_target")
@@ -696,19 +693,19 @@ class ASTRO_MODELER_PT_modifier_inspector(bpy.types.Panel):
             layout.label(text=f'{modifier["type"]} — {modifier["name"]}')
             changed = _modifier_result["changed_properties"]
             if not changed:
-                layout.label(text="No changed parameters", icon="CHECKMARK")
-                layout.label(text="Matches freshly-created defaults")
+                layout.label(text=INSPECTOR_UI_RU["no_changed_parameters"], icon="CHECKMARK")
+                layout.label(text=INSPECTOR_UI_RU["matches_defaults"])
             for item in changed:
                 box = layout.box()
-                box.label(text=item["label"])
-                box.label(text=f'Default: {_format_inspector_value(item["default"])}')
-                box.label(text=f'Current: {_format_inspector_value(item["current"])}')
+                box.label(text=item["property"])
+                box.label(text=f'{INSPECTOR_UI_RU["default"]}: {format_display_value(item["default"])}')
+                box.label(text=f'{INSPECTOR_UI_RU["current"]}: {format_display_value(item["current"])}')
             for limitation in _modifier_result["limitations"]:
-                layout.label(text=f'Skipped: {limitation["property"]}', icon="ERROR")
+                layout.label(text=f'{INSPECTOR_UI_RU["skipped"]}: {limitation["property"]}', icon="ERROR")
         layout.separator()
-        layout.label(text="AI EXPLANATION")
-        layout.prop(settings, "explanation_context", text="Context")
-        layout.label(text="Ask Codex to explain the compared changes", icon="INFO")
+        layout.label(text=INSPECTOR_UI_RU["ai_explanation"])
+        layout.prop(settings, "explanation_context", text=INSPECTOR_UI_RU["context"])
+        layout.label(text=INSPECTOR_UI_RU["explanation_help"], icon="INFO")
 
 
 _classes = (ASTRO_MODELER_OT_start, ASTRO_MODELER_OT_stop, ASTRO_MODELER_OT_clear_feedback,

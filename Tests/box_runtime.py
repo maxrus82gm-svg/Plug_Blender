@@ -114,7 +114,7 @@ async def run_real_sol_modifier():
 
 
 async def main(real_sol=False, visual_only=False, compact_ui=False, version_only=False,
-               activity_ui=False, modifier_inspector=False):
+               activity_ui=False, modifier_inspector=False, format_only=False):
     params = StdioServerParameters(command=sys.executable,
         args=[str(ROOT / "MCP/server.py"), "--session-file", str(DESCRIPTOR),
               "--feedback-log", str(RUNTIME / "box-agent-feedback.jsonl")])
@@ -130,11 +130,17 @@ async def main(real_sol=False, visual_only=False, compact_ui=False, version_only
                 print(json.dumps({"success": True, "full_version": state["full_version"]},
                                  ensure_ascii=False))
                 return
+            if format_only:
+                state = await control("modifier_format")
+                await control("finish")
+                print(json.dumps({"success": True, "targeted": "modifier RU UI and float format",
+                                  "full_version": state["full_version"]}, ensure_ascii=False))
+                return
             if modifier_inspector:
                 prepared = await control("modifier_prepare")
                 assert len(prepared["modifier_targets"]) == 2
                 compared = await control("modifier_compare")
-                assert compared["inspector_message"] == "Changed parameters: 3"
+                assert compared["inspector_message"] == "Изменено параметров: 3"
                 response = await session.call_tool("inspect_selected_modifier_changes", {})
                 assert response.structuredContent["success"]
                 inspection = response.structuredContent["inspection"]
@@ -358,6 +364,7 @@ if __name__ == "__main__":
     parser.add_argument("--version-only", action="store_true")
     parser.add_argument("--activity-ui", action="store_true")
     parser.add_argument("--modifier-inspector", action="store_true")
+    parser.add_argument("--format-only", action="store_true")
     args = parser.parse_args()
     asyncio.run(main(args.real_sol, args.visual_only, args.compact_ui, args.version_only,
-                     args.activity_ui, args.modifier_inspector))
+                     args.activity_ui, args.modifier_inspector, args.format_only))

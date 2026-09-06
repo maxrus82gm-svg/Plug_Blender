@@ -35,6 +35,22 @@ class Modifier:
 
 
 class ModifierInspectorTests(unittest.TestCase):
+    def test_russian_v1_ui_copy_is_centralized_and_keeps_identifiers(self):
+        ui = module.INSPECTOR_UI_RU
+        self.assertEqual(ui["panel_title"], "АНАЛИЗ МОДИФИКАТОРОВ")
+        self.assertEqual(ui["get_modifiers"], "Получить модификаторы")
+        self.assertEqual(ui["compare_parameters"], "Сравнить параметры")
+        self.assertEqual(ui["changed_parameters"].format(count=3), "Изменено параметров: 3")
+        self.assertNotIn("width", ui.values())
+
+    def test_display_format_does_not_change_exact_values(self):
+        default = 0.10000000149011612
+        current = 0.003000000026077032
+        self.assertEqual(module.format_display_value(default), "0.1")
+        self.assertEqual(module.format_display_value(current), "0.003")
+        self.assertEqual(default, 0.10000000149011612)
+        self.assertEqual(current, 0.003000000026077032)
+
     def test_only_meaningful_exact_changes_are_returned(self):
         properties = [
             Prop("enabled", "BOOLEAN"), Prop("segments", "INT"),
