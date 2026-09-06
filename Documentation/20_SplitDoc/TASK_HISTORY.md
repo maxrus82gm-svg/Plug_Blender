@@ -141,3 +141,11 @@ VERDICT: PASS.
 **Проверки:** 18 unit/socket tests, SDK discovery четырёх tools, полный установленный-ZIP runtime в изолированном GUI Blender 5.0.1 и реальный GPT-5.6 Sol MEDIUM model turn. Подтверждены `100→1`, разрыв cluster, bounded JSONL, preview/toggle/Clear/lifecycle, неизменность сцены и регрессия tools. Пользователь и ChatGPT визуально подтвердили UI; дальнейшие UX-улучшения отложены.
 
 **Corrections:** до AGENT REPORT добавлены duplicate compaction, compact details UI и stop-on-problem. **INDEPENDENT REVIEW:** AWAITING INDEPENDENT REVIEW.
+
+## 2026-09-06 — TASK 014 — Efficient Agent Loop + deterministic mechanics + compact Feedback UX
+
+**Цель / результат:** закреплены граница AI/deterministic mechanics, экономный verification loop, stop-on-problem и native-first. Feedback Sidebar получил трёхстрочный collapsed preview, полный summary и более читаемые status/count/time при узкой ширине. Добавлены versioned artifacts с authoritative `version.py`, защитой от перезаписи и постоянной подписью загруженной версии в N-panel. Собран и проверен `dist/astro_modeler-0.1.0.1.zip`; старый `0.1.0.zip` сохранён.
+
+**Проверки:** targeted feedback unit/static checks и один изолированный Blender compact-UI runtime прошли. Version→filename/UI, ZIP contents, отказ перезаписи и чистая isolated установка `0.1.0.1` подтверждены. Пользователь провёл финальный Level D в реальном Blender `Version: 0.1.0.1`: пять clusters, `WARNING ×3`, compact preview, Show full details, time range и три статуса отображаются корректно. Полный suite, stress и real model turn сознательно не запускались без нового риска.
+
+**Corrections / дополнения до отчёта:** добавлены versioned build artifacts и visible installed version; stale обычная установка диагностирована и заменена пользовательской установкой точного ZIP. **INDEPENDENT REVIEW:** AWAITING INDEPENDENT REVIEW.
