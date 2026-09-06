@@ -114,4 +114,10 @@ VERDICT: PASS.
 
 **Цель / результат:** уточнены порядок немедленного review и рекомендация уровня Astra (START), нормальное workspace-state (GIT_REVIEW_RULES), краткая история и тематические знания без дублей (START / DOCUMENTATION_RULES). PASS TASK 006 синхронизирован. Существующего описания Selected Context в архитектуре достаточно; новых документов нет.
 
-**Corrections:** отсутствуют. **INDEPENDENT REVIEW:** ожидается; AWAITING INDEPENDENT REVIEW.
+**Corrections:** отсутствуют. **INDEPENDENT REVIEW:** REVIEW CONFIRMED. VERDICT: PASS. Полученный внешний verdict синхронизирован по постановке TASK 008; это фиксация принятия пользователем.
+
+## 2026-09-06 — TASK 008 — Geometry Placement v1: Parametric Box at 3D Cursor
+
+**Цель / результат:** создан controlled tool Box в позиции Cursor, с размерами по world X/Y/Z и единичным Scale. Уточнение пользователя отменило наследование ориентации Cursor. Проверены пять Box в отдельном GUI Blender 5.0.1 с текущим ZIP (один через Codex app-server), invalid input / Edit Mode, старые tools и lifecycle; 14 unit/socket tests и SDK discovery пройдены. Контракт и воспроизведение — `Documentation/04_Архитектура.md`. Внешний PASS TASK 007 синхронизирован.
+
+**Corrections:** review corrections отсутствуют; изменение ориентации получено во время исполнения. **INDEPENDENT REVIEW:** AWAITING INDEPENDENT REVIEW.

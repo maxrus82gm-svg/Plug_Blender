@@ -1,13 +1,17 @@
 """STDIO MCP server. stdout is reserved for the official SDK protocol."""
 
 import argparse
-from typing import TypedDict
+from typing import Annotated, TypedDict
+from pydantic import Field
 
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 
 from blender_client import create_cube as request_cube
 from blender_client import get_selected_context as request_selected_context
+from blender_client import create_box_at_cursor as request_box
+
+PositiveSize = Annotated[float, Field(strict=True, gt=0, allow_inf_nan=False)]
 
 Vector3 = tuple[float, float, float]
 Vector4 = tuple[float, float, float, float]
@@ -51,13 +55,26 @@ class CubeResult(TypedDict):
 def make_server(session_file=None):
     server = FastMCP(
         "Astro Modeler",
-        instructions="Use create_cube or read-only get_selected_context in the explicitly connected Blender session. Heavy geometry stays in Blender; return compact context only. Never automatically retry an uncertain create_cube result; ask the user to inspect the scene.",
+        instructions="Use create_cube, create_box_at_cursor or read-only get_selected_context in the explicitly connected Blender session. Heavy geometry stays in Blender. Never automatically retry an uncertain creating operation; inspect the scene first.",
     )
 
     @server.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False))
     def create_cube() -> CubeResult:
         """Create a 2-unit cube at the world origin in the connected Blender scene. Requires Object Mode."""
         return request_cube(session_file)
+
+    @server.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False))
+    def create_box_at_cursor(size_x: PositiveSize, size_y: PositiveSize, size_z: PositiveSize) -> CubeResult:
+        """Create a NEW world-aligned Box centered at the current 3D Cursor position.
+
+        Sizes are positive finite Blender units along world X/Y/Z axes;
+        no mm/cm or Scene Unit Scale conversion. Mesh dimensions match sizes,
+        Object Scale is (1,1,1), origin is centered. Requires Object Mode.
+        New Box becomes selected and active; previous selection is deselected.
+        Cursor rotation is ignored. Existing geometry/transforms and Cursor
+        are unchanged. Never auto-retry.
+        """
+        return request_box(size_x, size_y, size_z, session_file)
 
     @server.tool(annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False))
     def get_selected_context() -> SelectedContextResult:

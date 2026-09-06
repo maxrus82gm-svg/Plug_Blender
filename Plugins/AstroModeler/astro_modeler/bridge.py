@@ -1,6 +1,7 @@
 """Bounded, nonblocking local bridge. poll() is called by Blender's main thread."""
 
 import json
+import math
 import os
 from pathlib import Path
 import secrets
@@ -17,14 +18,27 @@ MAX_CLIENTS = 4
 CLIENT_TIMEOUT = 5.0
 
 
+def validate_box_sizes(size_x, size_y, size_z):
+    sizes = (size_x, size_y, size_z)
+    for value in sizes:
+        try:
+            valid = type(value) in (int, float) and math.isfinite(value) and value > 0
+        except OverflowError:
+            valid = False
+        if not valid:
+            raise ValueError("Box sizes must be finite positive numbers in Blender units.")
+    return sizes
+
+
 def default_session_file():
     return Path(tempfile.gettempdir()) / "astro_modeler" / "session.json"
 
 
 class Bridge:
-    def __init__(self, create_cube, session_file=None, port=PORT, get_selected_context=None):
+    def __init__(self, create_cube, session_file=None, port=PORT, get_selected_context=None, create_box_at_cursor=None):
         self.create_cube = create_cube
         self.get_selected_context = get_selected_context
+        self.create_box_at_cursor = create_box_at_cursor
         self.session_file = Path(session_file or default_session_file()).resolve()
         self.port = port
         self.listener = None
@@ -69,17 +83,28 @@ class Bridge:
     def _request(self, raw):
         try:
             request = json.loads(raw.decode("utf-8"))
-            if not isinstance(request, dict) or set(request) != {"command", "token"}:
-                raise ValueError("Expected only command and token.")
+            if not isinstance(request, dict):
+                raise ValueError("Expected a command object.")
+            expected = {"command", "token"}
+            if request.get("command") == "create_box_at_cursor":
+                expected |= {"size_x", "size_y", "size_z"}
+            if set(request) != expected:
+                raise ValueError("Unexpected or missing command fields.")
             token = request["token"]
             if not isinstance(token, str) or not secrets.compare_digest(token, self.token):
                 raise ValueError("Invalid session token. Restart the integration connection.")
+            if request["command"] == "create_box_at_cursor":
+                sizes = validate_box_sizes(*(request[key] for key in ("size_x", "size_y", "size_z")))
+                if self.create_box_at_cursor is None:
+                    raise RuntimeError("Box placement unavailable. Update the Astro Modeler add-on.")
+                name = self.create_box_at_cursor(*sizes)
+                return {"success": True, "object_name": name, "message": "Box created at the 3D Cursor; selected and active."}
             if request["command"] == "get_selected_context":
                 if self.get_selected_context is None:
                     raise RuntimeError("Selected context unavailable. Update the Astro Modeler add-on.")
                 return {"success": True, "context": self.get_selected_context(), "message": "Selected context read."}
             if request["command"] != "create_cube":
-                raise ValueError("Only create_cube and get_selected_context are supported.")
+                raise ValueError("Only create_cube, get_selected_context and create_box_at_cursor are supported.")
             name = self.create_cube()
             return {"success": True, "object_name": name, "message": "Cube created in the current scene."}
         except Exception as exc:

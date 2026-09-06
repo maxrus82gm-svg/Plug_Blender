@@ -15,7 +15,7 @@ spec = importlib.util.spec_from_file_location("astro_bridge", ROOT / "Plugins/As
 bridge_module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(bridge_module)
 sys.path.insert(0, str(ROOT / "MCP"))
-from blender_client import create_cube, get_selected_context
+from blender_client import create_cube, get_selected_context, create_box_at_cursor
 
 
 class BridgeTests(unittest.TestCase):
@@ -158,6 +158,37 @@ class BridgeTests(unittest.TestCase):
         self.assertFalse(result["success"])
         self.assertIsNone(result["context"])
         self.assertNotIn("object_name", result)
+
+    def test_box_arguments_are_validated_before_callback(self):
+        calls = []
+        self.bridge.create_box_at_cursor = lambda *sizes: calls.append(sizes) or "Box"
+        valid = self.request(command="create_box_at_cursor", size_x=20, size_y=10, size_z=5)
+        self.assertTrue(self.exchange(valid)["success"])
+        self.assertEqual(calls, [(20, 10, 5)])
+        for axis in ("size_x", "size_y", "size_z"):
+            for value in (0, -1, float("nan"), float("inf"), -float("inf"), True, "2", None):
+                self.assertFalse(self.exchange({**valid, axis: value})["success"])
+        for change in ({"token": "bad"}, {"extra": 1}):
+            self.assertFalse(self.exchange({**valid, **change})["success"])
+        missing = dict(valid)
+        del missing["size_z"]
+        self.assertFalse(self.exchange(missing)["success"])
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(self.names, [])
+
+    def test_box_client_roundtrip_and_local_validation(self):
+        self.bridge.create_box_at_cursor = lambda x, y, z: "Box"
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(create_box_at_cursor, 3, 4, 5, self.path)
+            deadline = time.monotonic() + 3
+            while not future.done() and time.monotonic() < deadline:
+                self.bridge.poll()
+                time.sleep(0.001)
+            self.assertEqual(future.result(timeout=2)["object_name"], "Box")
+        for value in (0, -1, float("nan"), float("inf"), True, "2", 10 ** 400):
+            result = create_box_at_cursor(value, 2, 3, self.path)
+            self.assertFalse(result["success"])
+            self.assertIn("finite positive", result["message"])
 
 
 if __name__ == "__main__":

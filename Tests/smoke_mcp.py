@@ -18,16 +18,17 @@ async def main():
             async with ClientSession(reader, writer) as session:
                 await session.initialize()
                 tools = (await session.list_tools()).tools
-                assert {tool.name for tool in tools} == {"create_cube", "get_selected_context"}
+                assert {tool.name for tool in tools} == {"create_cube", "get_selected_context", "create_box_at_cursor"}
                 for tool in tools:
-                    assert tool.inputSchema.get("properties", {}) == {}
+                    arguments = {"size_x": 20, "size_y": 10, "size_z": 5} if tool.name == "create_box_at_cursor" else {}
+                    assert set(tool.inputSchema.get("properties", {})) == set(arguments)
                     assert tool.annotations.readOnlyHint == (tool.name == "get_selected_context")
-                    result = await session.call_tool(tool.name, {})
+                    result = await session.call_tool(tool.name, arguments)
                     assert result.structuredContent["success"] is False
                     assert "No connected Blender" in result.structuredContent["message"]
                     if tool.name == "get_selected_context":
                         assert result.structuredContent["context"] is None
-                print("PASS: SDK STDIO initialize, two-tool discovery, read-only hint, empty input schemas, no-session errors")
+                print("PASS: SDK STDIO initialize, three-tool discovery, read-only hint, input schemas, no-session errors")
 
 
 if __name__ == "__main__":

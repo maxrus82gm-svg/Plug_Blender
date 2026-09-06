@@ -6,14 +6,16 @@ bl_info = {
     "version": (0, 1, 0),
     "blender": (5, 0, 0),
     "location": "3D View > Sidebar > Astro Modeler",
-    "description": "Local MCP Create Cube and Selected Context prototype",
+    "description": "Local MCP Cube, Selected Context and Box Placement prototype",
     "category": "3D View",
 }
 
 import bpy
+import math
+import struct
 from bpy.app.handlers import persistent
 
-from .bridge import Bridge
+from .bridge import Bridge, validate_box_sizes
 
 _bridge = None
 _last_message = "Stopped"
@@ -28,6 +30,60 @@ def _create_cube():
     obj = bpy.context.view_layer.objects.active
     if "FINISHED" not in result or obj is None or obj.name not in bpy.context.scene.objects:
         raise RuntimeError("Blender did not confirm cube creation. Inspect the scene before retrying.")
+    _last_message = f"Created {obj.name}"
+    return obj.name
+
+
+def _create_box_at_cursor(size_x, size_y, size_z):
+    """Create a world-aligned Box at Cursor position; ignore Cursor rotation."""
+    global _last_message
+    sizes = validate_box_sizes(size_x, size_y, size_z)
+    context = bpy.context
+    if context.mode != "OBJECT":
+        raise RuntimeError("Switch Blender to Object Mode before creating a box.")
+    # Mesh coordinates are float32. Reject overflow/underflow before allocating.
+    try:
+        half = [struct.unpack('f', struct.pack('f', size / 2))[0] for size in sizes]
+        if any(not math.isfinite(h) or h <= 0 for h in half):
+            raise ValueError()
+        for h in half:
+            if not math.isfinite(struct.unpack('f', struct.pack('f', h * 2))[0]):
+                raise ValueError()
+    except (OverflowError, ValueError):
+        raise ValueError("Box sizes exceed Blender Mesh numeric precision/range.") from None
+    cursor = context.scene.cursor
+    position = cursor.location.copy()
+    if not all(math.isfinite(v) for v in position):
+        raise ValueError("3D Cursor position must be finite.")
+    x, y, z = half
+    vertices = [(-x,-y,-z), (x,-y,-z), (x,y,-z), (-x,y,-z),
+                (-x,-y,z), (x,-y,z), (x,y,z), (-x,y,z)]
+    faces = [(0,3,2,1), (4,5,6,7), (0,1,5,4), (1,2,6,5), (2,3,7,6), (3,0,4,7)]
+    selected = list(context.selected_objects)
+    active = context.view_layer.objects.active
+    mesh = obj = None
+    try:
+        mesh = bpy.data.meshes.new("Box")
+        mesh.from_pydata(vertices, [], faces)
+        mesh.update()
+        obj = bpy.data.objects.new("Box", mesh)
+        obj.location = position
+        context.collection.objects.link(obj)
+        for previous in selected:
+            previous.select_set(False)
+        obj.select_set(True)
+        context.view_layer.objects.active = obj
+        context.view_layer.update()
+    except Exception:
+        # Remove only this operation's allocations; preserve the original scene.
+        if obj is not None:
+            bpy.data.objects.remove(obj, do_unlink=True)
+        if mesh is not None:
+            bpy.data.meshes.remove(mesh)
+        for previous in selected:
+            previous.select_set(True)
+        context.view_layer.objects.active = active
+        raise
     _last_message = f"Created {obj.name}"
     return obj.name
 
@@ -76,7 +132,8 @@ def start(session_file=None):
     global _bridge, _last_message
     if _bridge is not None:
         raise RuntimeError("Astro Modeler is already running.")
-    bridge = Bridge(_create_cube, session_file=session_file, get_selected_context=_get_selected_context)
+    bridge = Bridge(_create_cube, session_file=session_file, get_selected_context=_get_selected_context,
+                    create_box_at_cursor=_create_box_at_cursor)
     try:
         bridge.start()
         _bridge = bridge
@@ -142,7 +199,7 @@ class ASTRO_MODELER_PT_status(bpy.types.Panel):
             layout.operator("astro_modeler.start")
         else:
             layout.operator("astro_modeler.stop")
-            layout.label(text="One local session / 2 tools")
+            layout.label(text="One local session / 3 tools")
 
 
 _classes = (ASTRO_MODELER_OT_start, ASTRO_MODELER_OT_stop, ASTRO_MODELER_PT_status)

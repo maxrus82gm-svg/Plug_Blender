@@ -70,7 +70,7 @@ async def main():
         async with ClientSession(reader, writer) as session:
             await session.initialize()
             tools = {tool.name: tool for tool in (await session.list_tools()).tools}
-            assert set(tools) == {"create_cube", "get_selected_context"}
+            assert set(tools) == {"create_cube", "get_selected_context", "create_box_at_cursor"}
             assert tools["get_selected_context"].annotations.readOnlyHint
             results = {}
             for name in ("none", "none_active", "single", "multiple", "zero_scale", "edit_mode", "many", "heavy"):
