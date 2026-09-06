@@ -121,3 +121,9 @@ VERDICT: PASS.
 **Цель / результат:** создан controlled tool Box в позиции Cursor, с размерами по world X/Y/Z и единичным Scale. Уточнение пользователя отменило наследование ориентации Cursor. Проверены пять Box в отдельном GUI Blender 5.0.1 с текущим ZIP (один через Codex app-server), invalid input / Edit Mode, старые tools и lifecycle; 14 unit/socket tests и SDK discovery пройдены. Контракт и воспроизведение — `Documentation/04_Архитектура.md`. Внешний PASS TASK 007 синхронизирован.
 
 **Corrections:** review corrections отсутствуют; изменение ориентации получено во время исполнения. **INDEPENDENT REVIEW:** AWAITING INDEPENDENT REVIEW.
+
+## 2026-09-06 — TASK 010 — Research-First Workflow: подготовленный технический контекст перед реализацией
+
+**Цель / результат:** подготовка контекста и выборочное чтение закреплены в START; аналитическая роль Astra и точечный fallback — в правилах агента; развитие базы из подтверждённых практических знаний — в DOCUMENTATION_RULES. Shared runtime test harness записан кандидатом в очереди, без реализации. TASK 009 не запускалась.
+
+**Corrections:** отсутствуют. **INDEPENDENT REVIEW:** AWAITING INDEPENDENT REVIEW.
