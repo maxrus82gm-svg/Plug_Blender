@@ -192,6 +192,9 @@ def control():
             settings.show_hud = request["show_hud"]
             settings.text_size = request["text_size"]
             settings.text_color = request["text_color"]
+            settings.vertical_position = request["vertical_position"]
+            assert astro_modeler._activity_hud_position(1000, 500, 200, 20, 0)[1] == 0
+            assert astro_modeler._activity_hud_position(1000, 500, 200, 20, 100)[1] == 480
             assert astro_modeler._get_selected_context() == before and bpy.data.is_dirty == dirty
         elif action == "clear_activity":
             before = astro_modeler._get_selected_context()
@@ -260,6 +263,7 @@ def control():
                               "show_hud": settings.show_hud,
                               "text_size": settings.text_size,
                               "text_color": list(settings.text_color),
+                              "vertical_position": settings.vertical_position,
                           }, dirty=bpy.data.is_dirty)
     except Exception as exc:
         result = {"nonce": nonce, "success": False, "error": repr(exc)}

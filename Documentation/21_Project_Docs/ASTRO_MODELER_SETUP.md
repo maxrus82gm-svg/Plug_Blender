@@ -57,7 +57,7 @@ Codex запускает MCP server как STDIO subprocess сам; запуск
 - `create_box_at_cursor(size_x, size_y, size_z)` — world-aligned Box в позиции Cursor;
 - `post_modeling_note(status, summary, details="")` — сообщение в `AGENT FEEDBACK LOG` Blender.
 
-`AGENT ACTIVITY` в той же N-panel автоматически показывает последний фактически принятый bridge command, его outcome и runtime counts использованных tools. Зелёный viewport HUD остаётся видимым три секунды после вызова. Native controls позволяют включить HUD, выбрать размер и цвет текста; `Clear Statistics` очищает только activity telemetry и не трогает Feedback или Scene. Stop/Start сохраняют counts текущего Blender process, загрузка другого `.blend` скрывает прежнюю activity, полный restart начинает новую telemetry session. Эти сведения локальны, не являются public MCP tool и не добавляются в model context.
+`AGENT ACTIVITY` в той же N-panel автоматически показывает последний фактически принятый bridge command, его outcome и runtime counts использованных tools. Зелёный viewport HUD остаётся видимым три секунды после вызова. Native controls позволяют включить HUD, выбрать размер, цвет и вертикальную позицию текста от низа `0%` до верха `100%`; X остаётся по центру, default — `82%`. `Clear Statistics` очищает только activity telemetry и не трогает Feedback или Scene. Stop/Start сохраняют counts текущего Blender process, загрузка другого `.blend` скрывает прежнюю activity, полный restart начинает новую telemetry session. Эти сведения локальны, не являются public MCP tool и не добавляются в model context.
 
 Пример результата `create_cube`:
 

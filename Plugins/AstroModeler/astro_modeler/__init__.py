@@ -102,6 +102,13 @@ def _activity_hud_visible(now=None):
     return _last_activity is not None and (time.monotonic() if now is None else now) < _hud_until
 
 
+def _activity_hud_position(region_width, region_height, text_width, text_height,
+                           vertical_percent):
+    x = max(16, (region_width - text_width) / 2)
+    y = max(0, region_height - text_height) * vertical_percent / 100
+    return x, y
+
+
 def _draw_activity_hud():
     settings = _activity_settings()
     if settings is None or not settings.show_hud or not _activity_hud_visible():
@@ -110,9 +117,11 @@ def _draw_activity_hud():
     font_id = 0
     blf.size(font_id, settings.text_size)
     blf.color(font_id, *settings.text_color)
-    width, _height = blf.dimensions(font_id, text)
+    width, height = blf.dimensions(font_id, text)
     region = bpy.context.region
-    blf.position(font_id, max(16, (region.width - width) / 2), region.height * 0.82, 0)
+    x, y = _activity_hud_position(
+        region.width, region.height, width, height, settings.vertical_position)
+    blf.position(font_id, x, y, 0)
     blf.draw(font_id, text)
 
 
@@ -383,6 +392,9 @@ class ASTRO_MODELER_PG_activity_settings(bpy.types.PropertyGroup):
     text_color: bpy.props.FloatVectorProperty(
         name="Text Color", subtype="COLOR_GAMMA", size=4, min=0.0, max=1.0,
         default=(0.2, 1.0, 0.3, 1.0), update=_hud_settings_changed)
+    vertical_position: bpy.props.FloatProperty(
+        name="Vertical Position", subtype="PERCENTAGE", default=82.0,
+        min=0.0, max=100.0, precision=0, update=_hud_settings_changed)
 
 
 class ASTRO_MODELER_PT_status(bpy.types.Panel):
@@ -462,6 +474,7 @@ class ASTRO_MODELER_PT_activity(bpy.types.Panel):
         layout.prop(settings, "show_hud")
         layout.prop(settings, "text_size")
         layout.prop(settings, "text_color")
+        layout.prop(settings, "vertical_position")
         layout.separator()
         if _last_activity is None:
             layout.label(text="Last tool: None", icon="INFO")

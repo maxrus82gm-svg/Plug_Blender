@@ -121,9 +121,10 @@ async def main(real_sol=False, visual_only=False, compact_ui=False, version_only
                 timeout = await control("activity_timeout")
                 assert timeout["hud_text"] == "Astro Modeler · create_box_at_cursor"
                 changed = await control("activity_settings", show_hud=False, text_size=31,
-                                        text_color=[0.1, 0.8, 0.2, 1.0])
+                                        text_color=[0.1, 0.8, 0.2, 1.0], vertical_position=35)
                 assert changed["hud_settings"]["show_hud"] is False
                 assert changed["hud_settings"]["text_size"] == 31
+                assert changed["hud_settings"]["vertical_position"] == 35
                 assert await control("snapshot") == before
                 cleared = await control("clear_activity")
                 assert not cleared["activity_counts"] and cleared["last_activity"] is None
