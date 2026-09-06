@@ -69,6 +69,24 @@ def _clear_feedback():
     _redraw_feedback()
 
 
+def _wrapped_lines(text, width):
+    lines = []
+    for paragraph in text.splitlines():
+        lines.extend(textwrap.wrap(paragraph, width=width) or [""])
+    return lines
+
+
+def _details_display_lines(details, width, expanded=False):
+    """Return native label rows and whether collapsed UI hides any rows."""
+    lines = _wrapped_lines(details, width)
+    has_more = len(lines) > 3
+    if expanded or not has_more:
+        return lines, has_more
+    preview = lines[:3]
+    preview[-1] = preview[-1].rstrip() + "…"
+    return preview, True
+
+
 def _create_cube():
     global _last_message
     if bpy.context.mode != "OBJECT":
@@ -295,26 +313,23 @@ class ASTRO_MODELER_PT_feedback(bpy.types.Panel):
         icons = {"OK": "CHECKMARK", "WARNING": "ERROR", "BLOCKED": "CANCEL"}
         for note in _feedback:
             box = layout.box()
-            heading = box.row()
+            heading = box.row(align=True)
             heading.alert = note["status"] != "OK"
+            heading.label(text=note["status"], icon=icons[note["status"]])
+            if note["repeat_count"] > 1:
+                heading.label(text=f'×{note["repeat_count"]}')
             time_label = note["first_time"]
             if note["last_time"] != note["first_time"]:
                 time_label += f'–{note["last_time"]}'
-            count_label = f' ×{note["repeat_count"]}' if note["repeat_count"] > 1 else ""
-            heading.label(text=f'{time_label}  {note["status"]}{count_label}', icon=icons[note["status"]])
-            for paragraph in note["summary"].splitlines():
-                for line in textwrap.wrap(paragraph, width=width) or [""]:
-                    box.label(text=line)
+            box.label(text=time_label, icon="TIME")
+            for line in _wrapped_lines(note["summary"], width):
+                box.label(text=line)
             if note["details"]:
                 box.separator(factor=0.35)
-                collapsed = " ".join(note["details"].split())
-                preview_limit = max(80, width * 3)
-                has_more = len(collapsed) > preview_limit or collapsed != note["details"]
                 expanded = note["id"] in _expanded_feedback
-                shown = note["details"] if expanded or not has_more else collapsed[:preview_limit - 1].rstrip() + "…"
-                for paragraph in shown.splitlines():
-                    for line in textwrap.wrap(paragraph, width=width) or [""]:
-                        box.label(text=line)
+                shown, has_more = _details_display_lines(note["details"], width, expanded)
+                for line in shown:
+                    box.label(text=line)
                 if has_more:
                     operator = box.operator(
                         "astro_modeler.toggle_feedback",

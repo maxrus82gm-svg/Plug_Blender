@@ -77,8 +77,9 @@ def make_server(session_file=None, feedback_log=None):
 
         Runtime history holds 20 notes, newest first; no scene/undo changes.
         Entire UTF-8 request including token and newline must fit 4096 bytes.
-        Use a short nonblank summary; details may explain a problem, missing
-        capability, recommendation or question. Use OK for a completed
+        Use a short self-contained summary of what happened. Details must add
+        new useful information rather than restating summary: a verified cause,
+        fact, recommendation, missing capability or required next step. Use OK for a completed
         substantive modelling result, WARNING for a risk or recoverable
         limitation, and BLOCKED when safe progress needs a capability or user
         decision. Do not post after routine reads, duplicate the same error, or

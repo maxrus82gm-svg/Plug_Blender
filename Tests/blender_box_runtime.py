@@ -30,6 +30,15 @@ events = []
 main_thread = threading.get_ident()
 note_checks = []
 
+preview, hidden = astro_modeler._details_display_lines(
+    "Детерминированный preview должен занимать ровно три визуальные строки в узкой панели.", 12)
+assert hidden and len(preview) == 3 and preview[-1].endswith("…")
+expanded, hidden = astro_modeler._details_display_lines(
+    "Детерминированный preview должен занимать ровно три визуальные строки в узкой панели.", 12, True)
+assert hidden and len(expanded) > 3 and not expanded[-1].endswith("…")
+short, hidden = astro_modeler._details_display_lines("Короткий details.", 30)
+assert not hidden and short == ["Короткий details."]
+
 
 def fingerprint(obj):
     return (list(map(list, obj.matrix_world)),

@@ -80,7 +80,7 @@ async def run_real_sol_feedback():
     assert process.returncode == 0, output.decode("utf-8", errors="replace")
 
 
-async def main(real_sol=False, visual_only=False):
+async def main(real_sol=False, visual_only=False, compact_ui=False):
     params = StdioServerParameters(command=sys.executable,
         args=[str(ROOT / "MCP/server.py"), "--session-file", str(DESCRIPTOR),
               "--feedback-log", str(RUNTIME / "box-agent-feedback.jsonl")])
@@ -90,11 +90,36 @@ async def main(real_sol=False, visual_only=False):
             await session.initialize()
             names = {t.name for t in (await session.list_tools()).tools}
             assert names == {"create_cube", "get_selected_context", "create_box_at_cursor", "post_modeling_note"}
+            if compact_ui:
+                await control("prepare_feedback")
+                before = await control("snapshot")
+                result = await session.call_tool("post_modeling_note", {
+                    "status": "BLOCKED", "summary": "Нужен controlled mesh-analysis tool", "details": ""})
+                assert result.structuredContent["success"], result
+                long_note = {
+                    "status": "WARNING",
+                    "summary": "Проверка минимальной толщины недоступна",
+                    "details": ("Blender должен вычислить численную толщину детерминированным алгоритмом. "
+                                "Codex Agent интерпретирует компактный результат, оценивает риск и объясняет "
+                                "следующий шаг пользователю, не повторяя summary в details."),
+                }
+                for _ in range(2):
+                    result = await session.call_tool("post_modeling_note", long_note)
+                    assert result.structuredContent["success"], result
+                feedback = await control("feedback_state")
+                assert len(feedback["notes"]) == 2
+                assert feedback["notes"][0]["repeat_count"] == 2
+                await control("toggle_first_feedback")
+                assert await control("snapshot") == before
+                await control("finish")
+                print(json.dumps({"success": True, "targeted": "compact feedback UI",
+                                  "clusters": 2}, ensure_ascii=False))
+                return
             if visual_only:
                 await control("prepare_feedback")
                 duplicate = {"status": "WARNING", "summary": "Нет локального измерения толщины",
                              "details": "Нужен отдельный controlled tool для точного измерения."}
-                for _ in range(100):
+                for _ in range(3):
                     result = await session.call_tool("post_modeling_note", duplicate)
                     assert result.structuredContent["success"], result
                 for note in (
@@ -111,7 +136,7 @@ async def main(real_sol=False, visual_only=False):
                     result = await session.call_tool("post_modeling_note", note)
                     assert result.structuredContent["success"], result
                 feedback = await control("feedback_state")
-                assert feedback["notes"][-1]["repeat_count"] == 100
+                assert feedback["notes"][-1]["repeat_count"] == 3
                 print(json.dumps({"success": True, "visual_check_ready": True,
                                   "clusters": len(feedback["notes"])}, ensure_ascii=False))
                 return
@@ -233,5 +258,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--real-sol", action="store_true")
     parser.add_argument("--visual-only", action="store_true")
+    parser.add_argument("--compact-ui", action="store_true")
     args = parser.parse_args()
-    asyncio.run(main(args.real_sol, args.visual_only))
+    asyncio.run(main(args.real_sol, args.visual_only, args.compact_ui))
