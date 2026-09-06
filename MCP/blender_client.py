@@ -129,7 +129,9 @@ def _request(command, session_file=None, arguments=None):
         if (not isinstance(result, dict) or type(result.get("success")) is not bool
                 or not isinstance(result.get("message"), str)
                 or (result["success"] and command in {"create_cube", "create_box_at_cursor"} and not isinstance(result.get("object_name"), str))
-                or (result["success"] and command == "get_selected_context" and not isinstance(result.get("context"), dict))):
+                or (result["success"] and command == "get_selected_context" and not isinstance(result.get("context"), dict))
+                or (result["success"] and command == "inspect_selected_modifier_changes"
+                    and not isinstance(result.get("inspection"), dict))):
             raise ValueError("Invalid bridge result")
         return result
     except (OSError, ValueError):
@@ -137,6 +139,8 @@ def _request(command, session_file=None, arguments=None):
             return {"success": False, "message": "Feedback delivery failed or is unconfirmed; inspect the Blender panel before resending."}
         if command == "get_selected_context":
             return {"success": False, "message": "Could not read selected context: Blender connection failed, timed out, or returned an invalid response."}
+        if command == "inspect_selected_modifier_changes":
+            return {"success": False, "message": "Could not read modifier inspection: Blender connection failed, timed out, or returned an invalid response."}
         # Creating an object is not idempotent. Never retry after a lost response.
         return {"success": False, "object_name": None, "message": "Blender connection failed or timed out; the outcome may be unknown. Inspect the scene before retrying, then reconnect Astro Modeler."}
 
@@ -149,6 +153,12 @@ def create_cube(session_file=None):
 def get_selected_context(session_file=None):
     result = _request("get_selected_context", session_file)
     return {"success": result["success"], "context": result.get("context"), "message": result["message"]}
+
+
+def inspect_selected_modifier_changes(session_file=None):
+    result = _request("inspect_selected_modifier_changes", session_file)
+    return {"success": result["success"], "inspection": result.get("inspection"),
+            "message": result["message"]}
 
 
 def create_box_at_cursor(size_x, size_y, size_z, session_file=None):

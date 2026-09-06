@@ -91,11 +91,13 @@ class BridgeTests(unittest.TestCase):
         self.bridge.get_selected_context = lambda: {"selected_objects": []}
         self.bridge.create_box_at_cursor = lambda *_: "Box"
         self.bridge.post_modeling_note = lambda *_: None
+        self.bridge.inspect_modifier_changes = lambda: {"changed_properties": []}
         requests = (
             self.request(),
             self.request(command="get_selected_context"),
             self.request(command="create_box_at_cursor", size_x=2, size_y=3, size_z=4),
             self.request(command="post_modeling_note", status="OK", summary="Done"),
+            self.request(command="inspect_selected_modifier_changes"),
         )
         for request in requests:
             self.assertTrue(self.exchange(request)["success"])

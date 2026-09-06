@@ -1,6 +1,6 @@
 # Astro Modeler — установка и проверка
 
-Astro Modeler предоставляет одной явно подключённой Blender session четыре public MCP tools: `create_cube`, `get_selected_context`, `create_box_at_cursor`, `post_modeling_note`. Проверенная среда — Windows, Blender 5.0.1 с Python 3.11.13, внешний Python 3.13.8 и Codex CLI. Другие версии и ОС не проверены. Архитектура описана в `Documentation/04_Архитектура.md`.
+Astro Modeler предоставляет одной явно подключённой Blender session пять public MCP tools: `create_cube`, `get_selected_context`, `create_box_at_cursor`, `post_modeling_note`, `inspect_selected_modifier_changes`. Проверенная среда — Windows, Blender 5.0.1 с Python 3.11.13, внешний Python 3.13.8 и Codex CLI. Другие версии и ОС не проверены. Архитектура описана в `Documentation/04_Архитектура.md`.
 
 ## Подготовка из корня репозитория
 
@@ -15,7 +15,7 @@ python -m venv .venv
 
 Каноническая identity development build хранится только в `Plugins/AstroModeler/astro_modeler/version.py`: `PRODUCT_VERSION`, `BUILD_NUMBER`, вычисляемый `FULL_VERSION`. Add-on использует product tuple для совместимого `bl_info`, а `FULL_VERSION` — для имени ZIP и видимой build identity. Сборка создаётся в `<repo>/dist/astro_modeler-<FULL_VERSION>.zip` и включает `version.py`.
 
-Versioned artifacts не перезаписываются и не удаляются автоматически. Если ZIP текущего `FULL_VERSION` уже существует, build завершается ошибкой и требует увеличить `BUILD_NUMBER`: один version string соответствует одному конкретному artifact. Исторические `dist/astro_modeler-0.1.0.zip` и `dist/astro_modeler-0.1.0.1.zip` сохраняются; текущий development build — `dist/astro_modeler-0.1.0.2.zip`.
+Versioned artifacts не перезаписываются и не удаляются автоматически. Если ZIP текущего `FULL_VERSION` уже существует, build завершается ошибкой и требует увеличить `BUILD_NUMBER`: один version string соответствует одному конкретному artifact. Исторические artifacts сохраняются; текущий development build TASK 016 — `dist/astro_modeler-0.1.0.4.zip`.
 
 MCP использует официальный Python SDK `mcp==1.29.1` и его FastMCP v1 API. Прямая зависимость закреплена; транзитивные версии разрешает pip, полного lockfile в прототипе нет. Add-on использует только Blender `bpy` и стандартную библиотеку, установка pip-пакетов внутрь Blender не нужна. Сведения об SDK: [официальный Python SDK MCP](https://github.com/modelcontextprotocol/python-sdk/tree/v1.x).
 
@@ -48,14 +48,17 @@ codex mcp get astro_modeler
 
 Codex запускает MCP server как STDIO subprocess сам; запускать `MCP/server.py` вручную в отдельном терминале не нужно. После добавления перезапусти Codex app для перечитывания MCP settings. Настройка STDIO и команда `codex mcp add` подтверждены [официальной документацией Codex MCP](https://developers.openai.com/codex/mcp).
 
-Подтверждённый runtime: Astro Modeler зарегистрирован как внешний STDIO MCP Codex; GPT-5.6 Sol видит все четыре tools. Sol MEDIUM прошёл моделирующие и Agent Feedback вызовы, Sol LOW ранее успешно выполнял простые tool-вызовы. Это не делает LOW достаточным для любой будущей TASK: модель и reasoning выбираются по сложности, а текущая рабочая практика для ближайших технических TASK — GPT-5.6 Sol MEDIUM.
+Подтверждённый runtime: Astro Modeler зарегистрирован как внешний STDIO MCP Codex. Модель и reasoning выбираются по сложности TASK.
 
-В диалоге Codex должны быть доступны четыре инструмента:
+В диалоге Codex должны быть доступны пять инструментов:
 
 - `create_cube()` — новый куб 2 × 2 × 2 в мировом начале координат;
 - `get_selected_context()` — компактный read-only контекст selection, active object и 3D Cursor без mesh data;
 - `create_box_at_cursor(size_x, size_y, size_z)` — world-aligned Box в позиции Cursor;
 - `post_modeling_note(status, summary, details="")` — сообщение в `AGENT FEEDBACK LOG` Blender.
+- `inspect_selected_modifier_changes()` — read-only получение последнего локально рассчитанного modifier diff для необязательного объяснения.
+
+`MODIFIER INSPECTOR` работает локально и без AI: выдели active object в Object Mode, нажми **Get Modifiers**, выбери один modifier и нажми **Compare Parameters**. Add-on сравнивает его с freshly-created modifier того же type в текущем Blender и показывает только changed properties. RNA metadata defaults не используются. Служебные `__ASTRO_MODELER_TEMP_*` datablocks удаляются; возможный dirty `.blend` — известное ограничение V1. Context необязателен: пустое поле использует стандартную инструкцию. Для объяснения пользователь отдельно просит Codex разобрать изменения; Blender сам conversation не запускает.
 
 `AGENT ACTIVITY` в той же N-panel автоматически показывает последний фактически принятый bridge command, его outcome и runtime counts использованных tools. Зелёный viewport HUD остаётся видимым три секунды после вызова. Native controls позволяют включить HUD, выбрать размер, цвет и вертикальную позицию текста от низа `0%` до верха `100%`; X остаётся по центру, default — `82%`. `Clear Statistics` очищает только activity telemetry и не трогает Feedback или Scene. Stop/Start сохраняют counts текущего Blender process, загрузка другого `.blend` скрывает прежнюю activity, полный restart начинает новую telemetry session. Эти сведения локальны, не являются public MCP tool и не добавляются в model context.
 

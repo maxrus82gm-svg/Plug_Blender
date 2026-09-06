@@ -1,7 +1,7 @@
 """STDIO MCP server. stdout is reserved for the official SDK protocol."""
 
 import argparse
-from typing import Annotated, Literal, TypedDict
+from typing import Annotated, Any, Literal, TypedDict
 from pydantic import Field
 
 from mcp.server.fastmcp import FastMCP
@@ -11,6 +11,7 @@ from blender_client import create_cube as request_cube
 from blender_client import get_selected_context as request_selected_context
 from blender_client import create_box_at_cursor as request_box
 from blender_client import post_modeling_note as request_note
+from blender_client import inspect_selected_modifier_changes as request_modifier_changes
 
 PositiveSize = Annotated[float, Field(strict=True, gt=0, allow_inf_nan=False)]
 
@@ -55,6 +56,12 @@ class CubeResult(TypedDict):
 
 class NoteResult(TypedDict):
     success: bool
+    message: str
+
+
+class ModifierInspectionResult(TypedDict):
+    success: bool
+    inspection: dict[str, Any] | None
     message: str
 
 
@@ -118,6 +125,21 @@ def make_server(session_file=None, feedback_log=None):
         count only, never vertex count; >1 MiB returns an error, no truncation.
         """
         return request_selected_context(session_file)
+
+    @server.tool(annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False))
+    def inspect_selected_modifier_changes() -> ModifierInspectionResult:
+        """Read the last deterministic modifier diff prepared in Blender.
+
+        The user first runs Get Modifiers and Compare Parameters in the Blender
+        MODIFIER INSPECTOR. Python compares the chosen modifier with a freshly
+        created modifier of the same type in that running Blender; this tool
+        does not compute or infer the diff. Explain only changed_properties
+        returned here, in simple Russian, following explanation_instruction and
+        optional user_context. Keep proven values separate from probable author
+        intent; never invent changed properties. If no current comparison exists
+        or selection became stale, ask the user to run the local buttons again.
+        """
+        return request_modifier_changes(session_file)
 
     return server
 

@@ -80,8 +80,41 @@ async def run_real_sol_feedback():
     assert process.returncode == 0, output.decode("utf-8", errors="replace")
 
 
+async def run_real_sol_modifier():
+    python = (ROOT / ".venv/Scripts/python.exe").as_posix()
+    server = (ROOT / "MCP/server.py").as_posix()
+    descriptor = DESCRIPTOR.as_posix()
+    final_path = RUNTIME / "sol-modifier-final.txt"
+    final_path.unlink(missing_ok=True)
+    config_args = json.dumps([server, "--session-file", descriptor])
+    prompt = (
+        "Вызови только inspect_selected_modifier_changes ровно один раз. Затем объясни результат "
+        "простым русским языком для начинающего согласно instruction/context из tool result. "
+        "Не добавляй changed properties, которых нет в результате. Отделяй доказанные значения "
+        "от вероятной причины. Последней строкой напиши строго: "
+        "FACT_PROPERTIES: width, segments, offset_type"
+    )
+    process = await asyncio.create_subprocess_exec(
+        "codex", "exec", "--ephemeral", "--ignore-user-config", "--ignore-rules",
+        "--sandbox", "read-only", "--model", "gpt-5.6-sol",
+        "-c", 'model_reasoning_effort="low"', "--output-last-message", str(final_path),
+        "-c", f'mcp_servers.astro_modeler.command="{python}"',
+        "-c", f"mcp_servers.astro_modeler.args={config_args}",
+        "-c", f'mcp_servers.astro_modeler.cwd="{ROOT.as_posix()}"',
+        "-C", str(ROOT), prompt,
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
+    )
+    output, _ = await process.communicate()
+    (RUNTIME / "sol-modifier-runtime.log").write_bytes(output)
+    assert process.returncode == 0, output.decode("utf-8", errors="replace")
+    final = final_path.read_text(encoding="utf-8")
+    assert "FACT_PROPERTIES: width, segments, offset_type" in final
+    assert "0.003" in final and "6" in final
+    assert any(word in final.lower() for word in ("вероят", "обычно", "мог"))
+
+
 async def main(real_sol=False, visual_only=False, compact_ui=False, version_only=False,
-               activity_ui=False):
+               activity_ui=False, modifier_inspector=False):
     params = StdioServerParameters(command=sys.executable,
         args=[str(ROOT / "MCP/server.py"), "--session-file", str(DESCRIPTOR),
               "--feedback-log", str(RUNTIME / "box-agent-feedback.jsonl")])
@@ -90,12 +123,32 @@ async def main(real_sol=False, visual_only=False, compact_ui=False, version_only
         async with ClientSession(reader, writer) as session:
             await session.initialize()
             names = {t.name for t in (await session.list_tools()).tools}
-            assert names == {"create_cube", "get_selected_context", "create_box_at_cursor", "post_modeling_note"}
+            assert names == {"create_cube", "get_selected_context", "create_box_at_cursor", "post_modeling_note", "inspect_selected_modifier_changes"}
             if version_only:
                 state = await control("version_check")
                 await control("finish")
                 print(json.dumps({"success": True, "full_version": state["full_version"]},
                                  ensure_ascii=False))
+                return
+            if modifier_inspector:
+                prepared = await control("modifier_prepare")
+                assert len(prepared["modifier_targets"]) == 2
+                compared = await control("modifier_compare")
+                assert compared["inspector_message"] == "Changed parameters: 3"
+                response = await session.call_tool("inspect_selected_modifier_changes", {})
+                assert response.structuredContent["success"]
+                inspection = response.structuredContent["inspection"]
+                assert [item["property"] for item in inspection["changed_properties"]] == [
+                    "width", "segments", "offset_type"]
+                assert inspection["user_context"] == "Объясни как начинающему."
+                assert inspection["explanation_instruction"]
+                if real_sol:
+                    await run_real_sol_modifier()
+                await control("finish")
+                print(json.dumps({"success": True, "targeted": "modifier inspector",
+                                  "changed": ["width", "segments", "offset_type"],
+                                  "dirty": [compared["dirty_before"], compared["dirty_after"]],
+                                  "real_sol": real_sol}, ensure_ascii=False))
                 return
             if activity_ui:
                 await control("clear_activity")
@@ -304,6 +357,7 @@ if __name__ == "__main__":
     parser.add_argument("--compact-ui", action="store_true")
     parser.add_argument("--version-only", action="store_true")
     parser.add_argument("--activity-ui", action="store_true")
+    parser.add_argument("--modifier-inspector", action="store_true")
     args = parser.parse_args()
     asyncio.run(main(args.real_sol, args.visual_only, args.compact_ui, args.version_only,
-                     args.activity_ui))
+                     args.activity_ui, args.modifier_inspector))

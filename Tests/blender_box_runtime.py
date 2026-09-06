@@ -196,6 +196,56 @@ def control():
             assert astro_modeler._activity_hud_position(1000, 500, 200, 20, 0)[1] == 0
             assert astro_modeler._activity_hud_position(1000, 500, 200, 20, 100)[1] == 480
             assert astro_modeler._get_selected_context() == before and bpy.data.is_dirty == dirty
+        elif action == "modifier_prepare":
+            if bpy.context.mode != "OBJECT":
+                bpy.ops.object.mode_set(mode="OBJECT")
+            obj = bpy.context.view_layer.objects.active
+            assert obj is not None and obj.type == "MESH" and obj in bpy.context.selected_objects
+            obj.modifiers.clear()
+            obj.modifiers.new("Bevel Default", "BEVEL")
+            tuned = obj.modifiers.new("Bevel Tuned", "BEVEL")
+            tuned.width = 0.003
+            tuned.segments = 6
+            tuned.offset_type = "WIDTH"
+            settings = bpy.context.window_manager.astro_modeler_inspector_settings
+            settings.explanation_context = "Объясни как начинающему."
+            assert "FINISHED" in bpy.ops.astro_modeler.get_modifiers()
+            assert len(astro_modeler._modifier_targets) == 2
+            assert [item["modifier_type"] for item in astro_modeler._modifier_targets] == ["BEVEL", "BEVEL"]
+            settings.modifier_target = "1"
+        elif action == "modifier_compare":
+            obj = bpy.context.view_layer.objects.active
+            selected = [item.as_pointer() for item in bpy.context.selected_objects]
+            active = obj.as_pointer()
+            cursor = list(map(list, bpy.context.scene.cursor.matrix))
+            geometry = fingerprint(obj)
+            values = [(mod.name, mod.type, mod.width, mod.segments, mod.offset_type)
+                      for mod in obj.modifiers]
+            dirty_before = bpy.data.is_dirty
+            assert "FINISHED" in bpy.ops.astro_modeler.compare_modifier()
+            assert [item["property"] for item in astro_modeler._modifier_result["changed_properties"]] == [
+                "width", "segments", "offset_type"]
+            assert fingerprint(obj) == geometry
+            assert [(mod.name, mod.type, mod.width, mod.segments, mod.offset_type)
+                    for mod in obj.modifiers] == values
+            assert [item.as_pointer() for item in bpy.context.selected_objects] == selected
+            assert bpy.context.view_layer.objects.active.as_pointer() == active
+            assert list(map(list, bpy.context.scene.cursor.matrix)) == cursor
+            assert not any(block.name.startswith("__ASTRO_MODELER_TEMP")
+                           for block in (*bpy.data.objects, *bpy.data.meshes))
+            target = astro_modeler._modifier_targets[1]
+            obj.modifiers[1].name += " stale"
+            try:
+                try:
+                    astro_modeler._resolve_modifier_target()
+                except RuntimeError as exc:
+                    assert "stale" in str(exc).lower()
+                else:
+                    raise AssertionError("Stale modifier selection was accepted")
+            finally:
+                obj.modifiers[1].name = target["modifier_name"]
+            (RUNTIME / "modifier-diff.json").write_text(
+                json.dumps(astro_modeler._modifier_result, ensure_ascii=False, indent=2), encoding="utf-8")
         elif action == "clear_activity":
             before = astro_modeler._get_selected_context()
             dirty = bpy.data.is_dirty
@@ -265,6 +315,12 @@ def control():
                               "text_color": list(settings.text_color),
                               "vertical_position": settings.vertical_position,
                           }, dirty=bpy.data.is_dirty)
+        if action in {"modifier_prepare", "modifier_compare"}:
+            result.update(modifier_targets=list(astro_modeler._modifier_targets),
+                          modifier_result=astro_modeler._modifier_result,
+                          inspector_message=astro_modeler._inspector_message)
+            if action == "modifier_compare":
+                result.update(dirty_before=dirty_before, dirty_after=bpy.data.is_dirty)
     except Exception as exc:
         result = {"nonce": nonce, "success": False, "error": repr(exc)}
     (RUNTIME / "box-state.json").write_text(json.dumps(result), encoding="utf-8")

@@ -36,7 +36,7 @@ except FileExistsError:
 try:
     with os.fdopen(descriptor, "wb") as stream:
         with zipfile.ZipFile(stream, "w", zipfile.ZIP_DEFLATED) as archive:
-            for name in ("__init__.py", "bridge.py", "version.py"):
+            for name in ("__init__.py", "bridge.py", "modifier_inspector.py", "version.py"):
                 archive.write(source / name, f"astro_modeler/{name}")
 except BaseException:
     output.unlink(missing_ok=True)

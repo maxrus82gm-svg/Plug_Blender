@@ -69,7 +69,7 @@ async def main(selected_context=False, box=False, note=False):
             entries = status.get("data", [])
             server = next(entry for entry in entries if entry["name"] == "astro_modeler")
             names = list(server["tools"])
-            assert set(names) == {"create_cube", "get_selected_context", "create_box_at_cursor", "post_modeling_note"}, names
+            assert set(names) == {"create_cube", "get_selected_context", "create_box_at_cursor", "post_modeling_note", "inspect_selected_modifier_changes"}, names
             evidence = {"client": "installed Codex app-server", "ephemeral": True, "model_turns": 0, "tools": names, "calls": []}
             for _ in range(1 if box or note else 2):
                 result = await send("mcpServer/tool/call", {"threadId": context_id, "server": "astro_modeler", "tool": tool_name, "arguments": {"status": "WARNING", "summary": "Проверка канала Codex", "details": "Не хватает локального измерения толщины."} if note else ({"size_x": 20, "size_y": 10, "size_z": 5} if box else {})})

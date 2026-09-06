@@ -18,6 +18,7 @@ bl_info = {
 import bpy
 import blf
 from datetime import datetime
+import json
 import math
 import struct
 import textwrap
@@ -26,6 +27,7 @@ from collections import deque
 from bpy.app.handlers import persistent
 
 from .bridge import Bridge, validate_box_sizes, validate_note
+from .modifier_inspector import compare_modifier_properties
 
 _bridge = None
 _last_message = "Stopped"
@@ -33,12 +35,21 @@ _timer_ticks = 0
 _feedback = deque(maxlen=20)
 _expanded_feedback = set()
 _next_feedback_id = 1
-_activity_tools = ("create_cube", "get_selected_context", "create_box_at_cursor", "post_modeling_note")
+_activity_tools = ("create_cube", "get_selected_context", "create_box_at_cursor", "post_modeling_note",
+                   "inspect_selected_modifier_changes")
 _activity_counts = {}
 _last_activity = None
 _hud_until = 0.0
 _hud_draw_handle = None
 _hud_timeout_seconds = 3.0
+_modifier_targets = []
+_modifier_result = None
+_inspector_message = "Select an object, then Get Modifiers"
+_default_explanation_instruction = (
+    "Объясни простым русским языком, что делают изменённые параметры, как текущее "
+    "значение отличается от freshly-created Blender default и зачем моделлер мог это "
+    "изменить. Не выдавай предполагаемое намерение автора за факт."
+)
 
 
 def _redraw_feedback():
@@ -181,6 +192,134 @@ def _loaded_version_label():
     return f"Version: {FULL_VERSION}"
 
 
+def _inspector_settings():
+    manager = getattr(bpy.context, "window_manager", None)
+    return getattr(manager, "astro_modeler_inspector_settings", None)
+
+
+def _modifier_enum_items(_self=None, _context=None):
+    return [(str(index), f'#{target["stack_index"] + 1} · {target["modifier_name"]} · {target["modifier_type"]}', "")
+            for index, target in enumerate(_modifier_targets)]
+
+
+def _active_modifier_object():
+    if bpy.context.mode != "OBJECT":
+        raise RuntimeError("Switch to Object Mode before modifier inspection.")
+    obj = bpy.context.view_layer.objects.active
+    if obj is None or obj not in bpy.context.selected_objects:
+        raise RuntimeError("Select one active object before modifier inspection.")
+    if not hasattr(obj, "modifiers"):
+        raise RuntimeError("The active object does not support modifiers.")
+    return obj
+
+
+def _clear_modifier_inspector(message="Select an object, then Get Modifiers"):
+    global _modifier_result, _inspector_message
+    _modifier_targets.clear()
+    _modifier_result = None
+    _inspector_message = message
+    _redraw_feedback()
+
+
+def _get_modifiers():
+    global _modifier_result, _inspector_message
+    obj = _active_modifier_object()
+    _modifier_targets.clear()
+    for index, modifier in enumerate(obj.modifiers):
+        _modifier_targets.append({
+            "object_pointer": obj.as_pointer(), "object_name": obj.name,
+            "stack_index": index, "modifier_name": modifier.name,
+            "modifier_type": modifier.type,
+        })
+    _modifier_result = None
+    settings = _inspector_settings()
+    if _modifier_targets:
+        settings.modifier_target = "0"
+        _inspector_message = f"Found {len(_modifier_targets)} modifier(s) on {obj.name}"
+    else:
+        _inspector_message = f"No modifiers on {obj.name}"
+    _redraw_feedback()
+
+
+def _resolve_modifier_target():
+    obj = _active_modifier_object()
+    settings = _inspector_settings()
+    try:
+        target = _modifier_targets[int(settings.modifier_target)]
+    except (ValueError, IndexError):
+        raise RuntimeError("Run Get Modifiers and choose one modifier first.") from None
+    if obj.as_pointer() != target["object_pointer"] or obj.name != target["object_name"]:
+        raise RuntimeError("Modifier selection is stale. Run Get Modifiers again.")
+    index = target["stack_index"]
+    if index >= len(obj.modifiers):
+        raise RuntimeError("Modifier selection is stale. Run Get Modifiers again.")
+    modifier = obj.modifiers[index]
+    if modifier.name != target["modifier_name"] or modifier.type != target["modifier_type"]:
+        raise RuntimeError("Modifier selection is stale. Run Get Modifiers again.")
+    return obj, modifier, target
+
+
+def _compare_selected_modifier():
+    global _modifier_result, _inspector_message
+    obj, modifier, target = _resolve_modifier_target()
+    temp_mesh = temp_object = None
+    cleanup_problem = None
+    operation_problem = None
+    changed = limitations = None
+    try:
+        temp_mesh = bpy.data.meshes.new("__ASTRO_MODELER_TEMP_MESH__")
+        temp_object = bpy.data.objects.new("__ASTRO_MODELER_TEMP_OBJECT__", temp_mesh)
+        fresh = temp_object.modifiers.new("__ASTRO_MODELER_TEMP_MODIFIER__", modifier.type)
+        changed, limitations = compare_modifier_properties(
+            modifier, fresh, is_id=lambda value: isinstance(value, bpy.types.ID))
+    except Exception as exc:
+        _modifier_result = None
+        operation_problem = exc
+    finally:
+        try:
+            if temp_object is not None:
+                bpy.data.objects.remove(temp_object, do_unlink=True)
+            if temp_mesh is not None:
+                bpy.data.meshes.remove(temp_mesh)
+        except Exception as exc:
+            cleanup_problem = exc
+    if cleanup_problem is not None:
+        _modifier_result = None
+        raise RuntimeError(
+            "Temporary cleanup failed for __ASTRO_MODELER_TEMP_OBJECT__ / "
+            f"__ASTRO_MODELER_TEMP_MESH__: {cleanup_problem}")
+    if operation_problem is not None:
+        raise RuntimeError(
+            f"Cannot compare {modifier.type} with a fresh Blender modifier: {operation_problem}") from None
+    _modifier_result = {
+        "object_name": obj.name,
+        "modifier": {"stack_index": target["stack_index"], "name": modifier.name, "type": modifier.type},
+        "changed_properties": changed,
+        "limitations": limitations,
+    }
+    _inspector_message = f"Changed parameters: {len(changed)}"
+    _redraw_feedback()
+    return _modifier_result
+
+
+def _inspect_selected_modifier_changes():
+    _obj, _modifier, target = _resolve_modifier_target()
+    if (_modifier_result is None or _modifier_result["object_name"] != target["object_name"]
+            or _modifier_result["modifier"] != {
+                "stack_index": target["stack_index"], "name": target["modifier_name"],
+                "type": target["modifier_type"]}):
+        raise RuntimeError("Run Compare Parameters for the selected modifier first.")
+    result = dict(_modifier_result)
+    settings = _inspector_settings()
+    result["explanation_instruction"] = _default_explanation_instruction
+    result["user_context"] = settings.explanation_context.strip()
+    return result
+
+
+def _format_inspector_value(value):
+    return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+
+
 def _create_cube():
     global _last_message
     if bpy.context.mode != "OBJECT":
@@ -293,7 +432,8 @@ def start(session_file=None):
         raise RuntimeError("Astro Modeler is already running.")
     bridge = Bridge(_create_cube, session_file=session_file, get_selected_context=_get_selected_context,
                     create_box_at_cursor=_create_box_at_cursor, post_modeling_note=_post_modeling_note,
-                    activity_callback=_activity_event)
+                    activity_callback=_activity_event,
+                    inspect_modifier_changes=_inspect_selected_modifier_changes)
     try:
         bridge.start()
         _bridge = bridge
@@ -321,6 +461,7 @@ def _on_load(_):
     stop()
     _clear_feedback()
     _clear_activity(clear_counts=False)
+    _clear_modifier_inspector("File changed; run Get Modifiers again")
     _last_message = "Stopped after file load; reconnect explicitly"
 
 
@@ -384,6 +525,37 @@ class ASTRO_MODELER_OT_clear_activity(bpy.types.Operator):
         return {"FINISHED"}
 
 
+class ASTRO_MODELER_OT_get_modifiers(bpy.types.Operator):
+    bl_idname = "astro_modeler.get_modifiers"
+    bl_label = "Get Modifiers"
+
+    def execute(self, context):
+        global _inspector_message
+        try:
+            _get_modifiers()
+        except RuntimeError as exc:
+            _clear_modifier_inspector(str(exc))
+            self.report({"ERROR"}, str(exc))
+            return {"CANCELLED"}
+        return {"FINISHED"}
+
+
+class ASTRO_MODELER_OT_compare_modifier(bpy.types.Operator):
+    bl_idname = "astro_modeler.compare_modifier"
+    bl_label = "Compare Parameters"
+
+    def execute(self, context):
+        global _inspector_message
+        try:
+            _compare_selected_modifier()
+        except RuntimeError as exc:
+            _inspector_message = str(exc)
+            self.report({"ERROR"}, str(exc))
+            _redraw_feedback()
+            return {"CANCELLED"}
+        return {"FINISHED"}
+
+
 class ASTRO_MODELER_PG_activity_settings(bpy.types.PropertyGroup):
     show_hud: bpy.props.BoolProperty(
         name="Show HUD", default=True, update=_hud_settings_changed)
@@ -395,6 +567,13 @@ class ASTRO_MODELER_PG_activity_settings(bpy.types.PropertyGroup):
     vertical_position: bpy.props.FloatProperty(
         name="Vertical Position", subtype="PERCENTAGE", default=82.0,
         min=0.0, max=100.0, precision=0, update=_hud_settings_changed)
+
+
+class ASTRO_MODELER_PG_inspector_settings(bpy.types.PropertyGroup):
+    modifier_target: bpy.props.EnumProperty(name="Modifier", items=_modifier_enum_items)
+    explanation_context: bpy.props.StringProperty(
+        name="Optional Context", maxlen=500,
+        description="Optional guidance added to the standard AI explanation instruction")
 
 
 class ASTRO_MODELER_PT_status(bpy.types.Panel):
@@ -412,7 +591,7 @@ class ASTRO_MODELER_PT_status(bpy.types.Panel):
             layout.operator("astro_modeler.start")
         else:
             layout.operator("astro_modeler.stop")
-            layout.label(text="One local session / 4 tools")
+            layout.label(text="One local session / 5 tools")
 
 
 class ASTRO_MODELER_PT_feedback(bpy.types.Panel):
@@ -421,7 +600,7 @@ class ASTRO_MODELER_PT_feedback(bpy.types.Panel):
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
     bl_category = "Astro Modeler"
-    bl_order = 2
+    bl_order = 3
 
     def draw(self, context):
         layout = self.layout
@@ -494,10 +673,50 @@ class ASTRO_MODELER_PT_activity(bpy.types.Panel):
         layout.operator("astro_modeler.clear_activity", icon="TRASH")
 
 
+class ASTRO_MODELER_PT_modifier_inspector(bpy.types.Panel):
+    bl_label = "MODIFIER INSPECTOR"
+    bl_idname = "ASTRO_MODELER_PT_modifier_inspector"
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "Astro Modeler"
+    bl_order = 2
+
+    def draw(self, context):
+        layout = self.layout
+        settings = context.window_manager.astro_modeler_inspector_settings
+        obj = context.view_layer.objects.active
+        layout.label(text=f"Object: {obj.name if obj else 'None'}")
+        layout.operator("astro_modeler.get_modifiers", icon="FILE_REFRESH")
+        if _modifier_targets:
+            layout.prop(settings, "modifier_target")
+            layout.operator("astro_modeler.compare_modifier", icon="VIEWZOOM")
+        layout.label(text=_inspector_message, icon="INFO")
+        if _modifier_result is not None:
+            modifier = _modifier_result["modifier"]
+            layout.label(text=f'{modifier["type"]} — {modifier["name"]}')
+            changed = _modifier_result["changed_properties"]
+            if not changed:
+                layout.label(text="No changed parameters", icon="CHECKMARK")
+                layout.label(text="Matches freshly-created defaults")
+            for item in changed:
+                box = layout.box()
+                box.label(text=item["label"])
+                box.label(text=f'Default: {_format_inspector_value(item["default"])}')
+                box.label(text=f'Current: {_format_inspector_value(item["current"])}')
+            for limitation in _modifier_result["limitations"]:
+                layout.label(text=f'Skipped: {limitation["property"]}', icon="ERROR")
+        layout.separator()
+        layout.label(text="AI EXPLANATION")
+        layout.prop(settings, "explanation_context", text="Context")
+        layout.label(text="Ask Codex to explain the compared changes", icon="INFO")
+
+
 _classes = (ASTRO_MODELER_OT_start, ASTRO_MODELER_OT_stop, ASTRO_MODELER_OT_clear_feedback,
             ASTRO_MODELER_OT_toggle_feedback, ASTRO_MODELER_OT_clear_activity,
-            ASTRO_MODELER_PG_activity_settings,
-            ASTRO_MODELER_PT_status, ASTRO_MODELER_PT_activity, ASTRO_MODELER_PT_feedback)
+            ASTRO_MODELER_OT_get_modifiers, ASTRO_MODELER_OT_compare_modifier,
+            ASTRO_MODELER_PG_activity_settings, ASTRO_MODELER_PG_inspector_settings,
+            ASTRO_MODELER_PT_status, ASTRO_MODELER_PT_activity,
+            ASTRO_MODELER_PT_modifier_inspector, ASTRO_MODELER_PT_feedback)
 
 
 def register():
@@ -506,6 +725,8 @@ def register():
         bpy.utils.register_class(cls)
     bpy.types.WindowManager.astro_modeler_activity_settings = bpy.props.PointerProperty(
         type=ASTRO_MODELER_PG_activity_settings)
+    bpy.types.WindowManager.astro_modeler_inspector_settings = bpy.props.PointerProperty(
+        type=ASTRO_MODELER_PG_inspector_settings)
     _hud_draw_handle = bpy.types.SpaceView3D.draw_handler_add(
         _draw_activity_hud, (), "WINDOW", "POST_PIXEL")
     bpy.app.handlers.load_pre.append(_on_load)
@@ -516,6 +737,7 @@ def unregister():
     stop()
     _clear_feedback()
     _clear_activity()
+    _clear_modifier_inspector()
     if _hud_draw_handle is not None:
         bpy.types.SpaceView3D.draw_handler_remove(_hud_draw_handle, "WINDOW")
         _hud_draw_handle = None
@@ -523,5 +745,7 @@ def unregister():
         bpy.app.handlers.load_pre.remove(_on_load)
     if hasattr(bpy.types.WindowManager, "astro_modeler_activity_settings"):
         del bpy.types.WindowManager.astro_modeler_activity_settings
+    if hasattr(bpy.types.WindowManager, "astro_modeler_inspector_settings"):
+        del bpy.types.WindowManager.astro_modeler_inspector_settings
     for cls in reversed(_classes):
         bpy.utils.unregister_class(cls)

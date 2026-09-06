@@ -45,12 +45,14 @@ def validate_note(status, summary, details):
 
 class Bridge:
     def __init__(self, create_cube, session_file=None, port=PORT, get_selected_context=None,
-                 create_box_at_cursor=None, post_modeling_note=None, activity_callback=None):
+                 create_box_at_cursor=None, post_modeling_note=None, activity_callback=None,
+                 inspect_modifier_changes=None):
         self.create_cube = create_cube
         self.get_selected_context = get_selected_context
         self.create_box_at_cursor = create_box_at_cursor
         self.post_modeling_note = post_modeling_note
         self.activity_callback = activity_callback
+        self.inspect_modifier_changes = inspect_modifier_changes
         self.session_file = Path(session_file or default_session_file()).resolve()
         self.port = port
         self.listener = None
@@ -116,8 +118,9 @@ class Bridge:
             token = request["token"]
             if not isinstance(token, str) or not secrets.compare_digest(token, self.token):
                 raise ValueError("Invalid session token. Restart the integration connection.")
-            if command not in {"create_cube", "get_selected_context", "create_box_at_cursor", "post_modeling_note"}:
-                raise ValueError("Only create_cube, get_selected_context, create_box_at_cursor and post_modeling_note are supported.")
+            if command not in {"create_cube", "get_selected_context", "create_box_at_cursor", "post_modeling_note",
+                               "inspect_selected_modifier_changes"}:
+                raise ValueError("Unsupported Astro Modeler command.")
             self._activity(command, None)
             try:
                 if set(request) != expected:
@@ -139,6 +142,11 @@ class Bridge:
                     if self.get_selected_context is None:
                         raise RuntimeError("Selected context unavailable. Update the Astro Modeler add-on.")
                     result = {"success": True, "context": self.get_selected_context(), "message": "Selected context read."}
+                elif command == "inspect_selected_modifier_changes":
+                    if self.inspect_modifier_changes is None:
+                        raise RuntimeError("Modifier Inspector unavailable. Update the Astro Modeler add-on.")
+                    result = {"success": True, "inspection": self.inspect_modifier_changes(),
+                              "message": "Deterministic modifier diff read from Blender."}
                 else:
                     name = self.create_cube()
                     result = {"success": True, "object_name": name, "message": "Cube created in the current scene."}
