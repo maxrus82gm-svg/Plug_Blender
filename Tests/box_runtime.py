@@ -1,8 +1,10 @@
 """Real MCP SDK + Codex calls to the isolated installed-ZIP GUI box fixture."""
 
 import asyncio
+import argparse
 import json
 from pathlib import Path
+import re
 import socket
 import sys
 import time
@@ -48,15 +50,71 @@ def nonfinite_bridge(value):
     return json.loads(response)
 
 
-async def main():
+async def run_real_sol_feedback():
+    python = (ROOT / ".venv/Scripts/python.exe").as_posix()
+    server = (ROOT / "MCP/server.py").as_posix()
+    descriptor = DESCRIPTOR.as_posix()
+    feedback_log = (RUNTIME / "box-agent-feedback.jsonl").as_posix()
+    config_args = json.dumps([server, "--session-file", descriptor, "--feedback-log", feedback_log])
+    prompt = (
+        "Проверь Agent Feedback реального Astro Modeler. Не читай файлы и persistent feedback log. "
+        "Вызови только post_modeling_note ровно четыре раза по порядку: "
+        "OK / summary 'SOL OK' / details 'Операция завершена'; "
+        "WARNING / summary 'SOL WARNING' / details 'Есть существенная неопределённость'; "
+        "BLOCKED / summary 'SOL BLOCKED' / details 'Нужен инструмент локального измерения толщины'; "
+        "OK / summary 'SOL LONG RU' / details из длинного русского текста не короче 600 символов. "
+        "Не вызывай другие tools. После четырёх подтверждённых вызовов кратко сообщи результат."
+    )
+    process = await asyncio.create_subprocess_exec(
+        "codex", "exec", "--ephemeral", "--ignore-user-config", "--ignore-rules",
+        "--sandbox", "read-only", "--model", "gpt-5.6-sol",
+        "-c", 'model_reasoning_effort="medium"',
+        "-c", f'mcp_servers.astro_modeler.command="{python}"',
+        "-c", f"mcp_servers.astro_modeler.args={config_args}",
+        "-c", f'mcp_servers.astro_modeler.cwd="{ROOT.as_posix()}"',
+        "-C", str(ROOT), prompt,
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
+    )
+    output, _ = await process.communicate()
+    (RUNTIME / "sol-feedback-runtime.log").write_bytes(output)
+    assert process.returncode == 0, output.decode("utf-8", errors="replace")
+
+
+async def main(real_sol=False, visual_only=False):
     params = StdioServerParameters(command=sys.executable,
-        args=[str(ROOT / "MCP/server.py"), "--session-file", str(DESCRIPTOR)])
+        args=[str(ROOT / "MCP/server.py"), "--session-file", str(DESCRIPTOR),
+              "--feedback-log", str(RUNTIME / "box-agent-feedback.jsonl")])
     evidence = {"cases": [], "source": "real GUI Blender, installed ZIP, SDK STDIO"}
     async with stdio_client(params) as (reader, writer):
         async with ClientSession(reader, writer) as session:
             await session.initialize()
             names = {t.name for t in (await session.list_tools()).tools}
             assert names == {"create_cube", "get_selected_context", "create_box_at_cursor", "post_modeling_note"}
+            if visual_only:
+                await control("prepare_feedback")
+                duplicate = {"status": "WARNING", "summary": "Нет локального измерения толщины",
+                             "details": "Нужен отдельный controlled tool для точного измерения."}
+                for _ in range(100):
+                    result = await session.call_tool("post_modeling_note", duplicate)
+                    assert result.structuredContent["success"], result
+                for note in (
+                    {"status": "OK", "summary": "Промежуточная операция завершена", "details": ""},
+                    duplicate,
+                    {"status": "BLOCKED", "summary": "Зависимая ветка остановлена",
+                     "details": "После одной полезной read-only диагностики требуется решение пользователя."},
+                    {"status": "OK", "summary": "Длинный details доступен по кнопке",
+                     "details": "Этот длинный русский текст показывает компактный preview в карточке. "
+                                "Полное содержимое сохраняется и раскрывается локальной кнопкой Show full details. "
+                                "Состояние раскрытия не хранится в Scene, Object properties, Text datablocks или .blend. "
+                                "Повторное нажатие скрывает полный текст и возвращает компактный вид."},
+                ):
+                    result = await session.call_tool("post_modeling_note", note)
+                    assert result.structuredContent["success"], result
+                feedback = await control("feedback_state")
+                assert feedback["notes"][-1]["repeat_count"] == 100
+                print(json.dumps({"success": True, "visual_check_ready": True,
+                                  "clusters": len(feedback["notes"])}, ensure_ascii=False))
+                return
             for label, position, rotation, sizes in (
                 ("origin", [0, 0, 0], [0, 0, 0], [20, 10, 5]),
                 ("translated", [7, -3, 2.5], [0, 0, 0], [3, 4, 7]),
@@ -102,28 +160,67 @@ async def main():
             evidence["cases"].append("Create Cube / Selected Context regression")
             await control("prepare_feedback")
             before = await control("snapshot")
-            for index, status in enumerate(("OK", "WARNING", "BLOCKED", "OK", "WARNING", "OK")):
+            duplicate = {"status": "WARNING", "summary": "Нет измерения",
+                         "details": "Нужен инструмент локального измерения толщины."}
+            for _ in range(100):
+                result = await session.call_tool("post_modeling_note", duplicate)
+                assert result.structuredContent["success"], result
+            feedback = await control("feedback_state")
+            assert len(feedback["notes"]) == 1 and feedback["notes"][0]["repeat_count"] == 100
+            assert feedback["notes"][0]["first_time"] <= feedback["notes"][0]["last_time"]
+            result = await session.call_tool(
+                "post_modeling_note", {"status": "OK", "summary": "Другая запись", "details": ""})
+            assert result.structuredContent["success"]
+            result = await session.call_tool("post_modeling_note", duplicate)
+            assert result.structuredContent["success"]
+            feedback = await control("feedback_state")
+            assert len(feedback["notes"]) == 3
+            assert [note["repeat_count"] for note in feedback["notes"]] == [1, 1, 100]
+            persistent = [json.loads(line) for line in (RUNTIME / "box-agent-feedback.jsonl").read_text(encoding="utf-8").splitlines()]
+            assert persistent[-3]["repeat_count"] == 100
+            assert [entry["summary"] for entry in persistent[-3:]] == [
+                "Нет измерения", "Другая запись", "Нет измерения"]
+            await control("clear_feedback")
+            for index in range(21):
+                status = ("OK", "WARNING", "BLOCKED")[index % 3]
                 details = ("Не хватает измерения толщины. Рекомендация: локальный анализ. " * 20) if index == 1 else ""
                 result = await session.call_tool("post_modeling_note", {"status": status, "summary": f"Итог {index}", "details": details})
                 assert result.structuredContent["success"], result
             feedback = await control("feedback_state")
-            assert [n["summary"] for n in feedback["notes"]] == [f"Итог {i}" for i in range(5, 0, -1)]
+            assert [n["summary"] for n in feedback["notes"]] == [f"Итог {i}" for i in range(20, 0, -1)]
             assert len(feedback["notes"][-1]["details"]) > 1000 and not feedback["dirty"]
+            assert all(re.fullmatch(r"\d{2}:\d{2}:\d{2}", n["first_time"]) for n in feedback["notes"])
+            assert feedback["notes"][0]["details"] == ""
+            await control("toggle_first_feedback")
             for args in ({"status": "BAD", "summary": "Итог"}, {"status": "OK", "summary": ""}, {"status": "OK", "summary": " "}):
                 result = await session.call_tool("post_modeling_note", args)
                 assert result.isError or not result.structuredContent["success"]
             result = await session.call_tool("post_modeling_note", {"status": "WARNING", "summary": "Итог", "details": "界" * 1500})
             assert not result.structuredContent["success"] and "4096 UTF-8 bytes" in result.structuredContent["message"]
-            assert (await control("feedback_state"))["note_checks"] == 6
+            assert (await control("feedback_state"))["note_checks"] == 123
             assert await control("snapshot") == before
             process = await asyncio.create_subprocess_exec(sys.executable, str(ROOT / "Tests/codex_runtime.py"), "--note")
             assert await process.wait() == 0
             feedback = await control("feedback_state")
-            assert feedback["notes"][0]["summary"] == "Проверка канала Codex" and feedback["note_checks"] == 7
+            assert feedback["notes"][0]["summary"] == "Проверка канала Codex" and feedback["note_checks"] == 124
             assert not feedback["dirty"]
+            if real_sol:
+                await run_real_sol_feedback()
+                feedback = await control("feedback_state")
+                assert [note["summary"] for note in feedback["notes"][:4]] == [
+                    "SOL LONG RU", "SOL BLOCKED", "SOL WARNING", "SOL OK"]
+                assert len(feedback["notes"][0]["details"]) >= 600
+                evidence["cases"].append("real GPT-5.6 Sol MEDIUM: four MCP notes, all statuses, long Russian details, no log read requested")
+            await control("clear_feedback")
+            assert not (await control("feedback_state"))["notes"]
+            result = await session.call_tool("post_modeling_note", {"status": "OK", "summary": "После очистки", "details": ""})
+            assert result.structuredContent["success"]
+            assert (await control("feedback_state"))["notes"][0]["summary"] == "После очистки"
             await control("feedback_save_load")
             assert not (await control("feedback_state"))["notes"]
-            evidence["cases"].append("Feedback: 7 notes incl. Codex, Russian >1000 chars, rolling five, validation/byte limit, unchanged scene/dirty, no persisted history on load")
+            persistent = [json.loads(line) for line in (RUNTIME / "box-agent-feedback.jsonl").read_text(encoding="utf-8").splitlines()]
+            assert persistent[-1]["summary"] == "После очистки" and len(persistent) <= 200
+            evidence["cases"].append("Feedback: exact duplicate clusters (100→1), statuses, timestamps, long Russian preview/toggle state, rolling 20, empty details, Clear, bounded clustered JSONL, validation/byte limit, unchanged scene/dirty, no .blend persistence")
     await control("finish")
     evidence["cases"].append("ZIP install/enable, stop/restart, load disconnect, disable cleanup")
     evidence["events"] = json.loads((RUNTIME / "box-events.json").read_text(encoding="utf-8"))
@@ -133,4 +230,8 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--real-sol", action="store_true")
+    parser.add_argument("--visual-only", action="store_true")
+    args = parser.parse_args()
+    asyncio.run(main(args.real_sol, args.visual_only))

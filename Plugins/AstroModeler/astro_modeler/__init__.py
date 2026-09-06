@@ -6,11 +6,12 @@ bl_info = {
     "version": (0, 1, 0),
     "blender": (5, 0, 0),
     "location": "3D View > Sidebar > Astro Modeler",
-    "description": "Local MCP Cube, Selected Context and Box Placement prototype",
+    "description": "Local MCP modelling tools and Agent Feedback Log",
     "category": "3D View",
 }
 
 import bpy
+from datetime import datetime
 import math
 import struct
 import textwrap
@@ -22,7 +23,9 @@ from .bridge import Bridge, validate_box_sizes, validate_note
 _bridge = None
 _last_message = "Stopped"
 _timer_ticks = 0
-_feedback = deque(maxlen=5)
+_feedback = deque(maxlen=20)
+_expanded_feedback = set()
+_next_feedback_id = 1
 
 
 def _redraw_feedback():
@@ -34,8 +37,35 @@ def _redraw_feedback():
 
 def _post_modeling_note(status, summary, details=""):
     """Runtime Python state only: no data blocks, scene mutation or undo operator."""
+    global _next_feedback_id
     validate_note(status, summary, details)
-    _feedback.appendleft({"status": status, "summary": summary, "details": details})
+    timestamp = datetime.now().strftime("%H:%M:%S")
+    if (_feedback and all(_feedback[0][key] == value
+                          for key, value in (("status", status), ("summary", summary), ("details", details)))):
+        _feedback[0]["last_time"] = timestamp
+        _feedback[0]["repeat_count"] += 1
+    else:
+        _feedback.appendleft({
+            "id": _next_feedback_id,
+            "first_time": timestamp,
+            "last_time": timestamp,
+            "repeat_count": 1,
+            "status": status,
+            "summary": summary,
+            "details": details,
+        })
+        _next_feedback_id += 1
+        live_ids = {note["id"] for note in _feedback}
+        _expanded_feedback.intersection_update(live_ids)
+    _redraw_feedback()
+
+
+def _clear_feedback():
+    """Clear service-only runtime state without a Blender data mutation."""
+    global _next_feedback_id
+    _feedback.clear()
+    _expanded_feedback.clear()
+    _next_feedback_id = 1
     _redraw_feedback()
 
 
@@ -160,8 +190,7 @@ def start(session_file=None):
         _bridge = None
         raise
     _last_message = "Listening on localhost"
-    _feedback.clear()
-    _redraw_feedback()
+    _clear_feedback()
 
 
 def stop(unregister_timer=True):
@@ -177,7 +206,7 @@ def stop(unregister_timer=True):
 def _on_load(_):
     global _last_message
     stop()
-    _feedback.clear()
+    _clear_feedback()
     _last_message = "Stopped after file load; reconnect explicitly"
 
 
@@ -205,6 +234,32 @@ class ASTRO_MODELER_OT_stop(bpy.types.Operator):
         return {"FINISHED"}
 
 
+class ASTRO_MODELER_OT_clear_feedback(bpy.types.Operator):
+    bl_idname = "astro_modeler.clear_feedback"
+    bl_label = "Clear Feedback"
+    bl_description = "Clear the visible Astro Modeler feedback runtime history"
+
+    def execute(self, context):
+        _clear_feedback()
+        return {"FINISHED"}
+
+
+class ASTRO_MODELER_OT_toggle_feedback(bpy.types.Operator):
+    bl_idname = "astro_modeler.toggle_feedback"
+    bl_label = "Toggle Feedback Details"
+    bl_description = "Expand or collapse this feedback entry"
+
+    cluster_id: bpy.props.IntProperty()
+
+    def execute(self, context):
+        if self.cluster_id in _expanded_feedback:
+            _expanded_feedback.remove(self.cluster_id)
+        else:
+            _expanded_feedback.add(self.cluster_id)
+        _redraw_feedback()
+        return {"FINISHED"}
+
+
 class ASTRO_MODELER_PT_status(bpy.types.Panel):
     bl_label = "Astro Modeler"
     bl_idname = "ASTRO_MODELER_PT_status"
@@ -220,19 +275,59 @@ class ASTRO_MODELER_PT_status(bpy.types.Panel):
         else:
             layout.operator("astro_modeler.stop")
             layout.label(text="One local session / 4 tools")
-        layout.separator()
-        layout.label(text="AGENT FEEDBACK")
+
+
+class ASTRO_MODELER_PT_feedback(bpy.types.Panel):
+    bl_label = "AGENT FEEDBACK LOG"
+    bl_idname = "ASTRO_MODELER_PT_feedback"
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "Astro Modeler"
+    bl_order = 1
+
+    def draw(self, context):
+        layout = self.layout
+        layout.operator("astro_modeler.clear_feedback", icon="TRASH")
+        if not _feedback:
+            layout.label(text="No feedback yet", icon="INFO")
+            return
         width = max(12, int((context.region.width - 40) / (8 * context.preferences.system.ui_scale)))
+        icons = {"OK": "CHECKMARK", "WARNING": "ERROR", "BLOCKED": "CANCEL"}
         for note in _feedback:
             box = layout.box()
-            box.label(text=note["status"])
-            for text in (note["summary"], note["details"]):
-                for paragraph in text.splitlines():
+            heading = box.row()
+            heading.alert = note["status"] != "OK"
+            time_label = note["first_time"]
+            if note["last_time"] != note["first_time"]:
+                time_label += f'–{note["last_time"]}'
+            count_label = f' ×{note["repeat_count"]}' if note["repeat_count"] > 1 else ""
+            heading.label(text=f'{time_label}  {note["status"]}{count_label}', icon=icons[note["status"]])
+            for paragraph in note["summary"].splitlines():
+                for line in textwrap.wrap(paragraph, width=width) or [""]:
+                    box.label(text=line)
+            if note["details"]:
+                box.separator(factor=0.35)
+                collapsed = " ".join(note["details"].split())
+                preview_limit = max(80, width * 3)
+                has_more = len(collapsed) > preview_limit or collapsed != note["details"]
+                expanded = note["id"] in _expanded_feedback
+                shown = note["details"] if expanded or not has_more else collapsed[:preview_limit - 1].rstrip() + "…"
+                for paragraph in shown.splitlines():
                     for line in textwrap.wrap(paragraph, width=width) or [""]:
                         box.label(text=line)
+                if has_more:
+                    operator = box.operator(
+                        "astro_modeler.toggle_feedback",
+                        text="Hide details" if expanded else "Show full details",
+                        icon="DISCLOSURE_TRI_DOWN" if expanded else "DISCLOSURE_TRI_RIGHT",
+                        emboss=False,
+                    )
+                    operator.cluster_id = note["id"]
 
 
-_classes = (ASTRO_MODELER_OT_start, ASTRO_MODELER_OT_stop, ASTRO_MODELER_PT_status)
+_classes = (ASTRO_MODELER_OT_start, ASTRO_MODELER_OT_stop, ASTRO_MODELER_OT_clear_feedback,
+            ASTRO_MODELER_OT_toggle_feedback,
+            ASTRO_MODELER_PT_status, ASTRO_MODELER_PT_feedback)
 
 
 def register():
@@ -243,7 +338,7 @@ def register():
 
 def unregister():
     stop()
-    _feedback.clear()
+    _clear_feedback()
     if _on_load in bpy.app.handlers.load_pre:
         bpy.app.handlers.load_pre.remove(_on_load)
     for cls in reversed(_classes):

@@ -2,6 +2,7 @@
 
 import json
 import math
+from datetime import datetime, timezone
 from pathlib import Path
 import socket
 import tempfile
@@ -9,10 +10,86 @@ import time
 
 MAX_RESPONSE_BYTES = 1024 * 1024
 MAX_REQUEST_BYTES = 4096
+FEEDBACK_LOG_LIMIT = 200
+FEEDBACK_LOG_READ_BYTES = 2 * 1024 * 1024
+FEEDBACK_LOG_PATH = Path(__file__).resolve().parents[1] / ".runtime" / "agent_feedback.jsonl"
 
 
 def default_session_file():
     return Path(tempfile.gettempdir()) / "astro_modeler" / "session.json"
+
+
+def _normalize_feedback_entry(entry):
+    if not isinstance(entry, dict):
+        return None
+    if set(entry) == {"time", "status", "summary", "details"}:
+        entry = {
+            "first_time": entry["time"], "last_time": entry["time"], "repeat_count": 1,
+            "status": entry["status"], "summary": entry["summary"], "details": entry["details"],
+        }
+    if set(entry) != {"first_time", "last_time", "repeat_count", "status", "summary", "details"}:
+        return None
+    if (not all(isinstance(entry[key], str)
+                for key in ("first_time", "last_time", "status", "summary", "details"))
+            or entry["status"] not in {"OK", "WARNING", "BLOCKED"}
+            or type(entry["repeat_count"]) is not int or entry["repeat_count"] < 1):
+        return None
+    return entry
+
+
+def _recent_feedback_entries(path):
+    try:
+        with path.open("rb") as stream:
+            size = stream.seek(0, 2)
+            if size > FEEDBACK_LOG_READ_BYTES:
+                stream.seek(size - FEEDBACK_LOG_READ_BYTES)
+                stream.readline()  # Discard a possibly partial first line.
+            else:
+                stream.seek(0)
+            lines = stream.readlines()
+    except FileNotFoundError:
+        return []
+    entries = []
+    for line in lines[-FEEDBACK_LOG_LIMIT:]:
+        try:
+            entry = _normalize_feedback_entry(json.loads(line.decode("utf-8")))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            continue
+        if entry is not None:
+            entries.append(entry)
+    return entries[-(FEEDBACK_LOG_LIMIT - 1):]
+
+
+def _record_feedback(status, summary, details, path=None, timestamp=None):
+    """Persist only confirmed notes; failures never change tool delivery status."""
+    path = Path(path or FEEDBACK_LOG_PATH)
+    timestamp = timestamp or datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+    entry = {
+        "first_time": timestamp,
+        "last_time": timestamp,
+        "repeat_count": 1,
+        "status": status,
+        "summary": summary,
+        "details": details,
+    }
+    entries = _recent_feedback_entries(path)
+    if entries and all(entries[-1][key] == entry[key] for key in ("status", "summary", "details")):
+        entries[-1]["last_time"] = timestamp
+        entries[-1]["repeat_count"] += 1
+    else:
+        entries.append(entry)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", newline="\n", dir=path.parent,
+                                         prefix=f".{path.name}.", suffix=".tmp", delete=False) as stream:
+            temporary = Path(stream.name)
+            for item in entries[-FEEDBACK_LOG_LIMIT:]:
+                stream.write(json.dumps(item, ensure_ascii=False, separators=(",", ":")) + "\n")
+        temporary.replace(path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 def _request(command, session_file=None, arguments=None):
@@ -85,10 +162,17 @@ def create_box_at_cursor(size_x, size_y, size_z, session_file=None):
     return {"success": result["success"], "object_name": result.get("object_name"), "message": result["message"]}
 
 
-def post_modeling_note(status, summary, details="", session_file=None):
+def post_modeling_note(status, summary, details="", session_file=None, feedback_log=None):
     if (not isinstance(status, str) or status not in {"OK", "WARNING", "BLOCKED"}
             or not isinstance(summary, str) or not summary.strip() or len(summary) > 240
             or not isinstance(details, str) or len(details) > 1800):
         return {"success": False, "message": "Use OK/WARNING/BLOCKED, a nonblank summary (max 240 characters), and details (max 1800 characters)."}
     result = _request("post_modeling_note", session_file, dict(status=status, summary=summary, details=details))
+    if result["success"]:
+        try:
+            _record_feedback(status, summary, details, feedback_log)
+        except (OSError, UnicodeError):
+            # Blender already confirmed delivery; the secondary diagnostic log
+            # must not turn a visible successful note into a failed tool call.
+            pass
     return {"success": result["success"], "message": result["message"]}

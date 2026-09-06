@@ -17,6 +17,7 @@ bridge_module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(bridge_module)
 sys.path.insert(0, str(ROOT / "MCP"))
 from blender_client import create_cube, get_selected_context, create_box_at_cursor, post_modeling_note
+import blender_client
 
 
 class BridgeTests(unittest.TestCase):
@@ -92,7 +93,10 @@ class BridgeTests(unittest.TestCase):
 
     def test_stalled_and_oversized_clients_are_bounded(self):
         with socket.create_connection(("127.0.0.1", self.session["port"])) as client:
-            self.bridge.poll()
+            deadline = time.monotonic() + 1
+            while not self.bridge.clients and time.monotonic() < deadline:
+                self.bridge.poll()
+                time.sleep(0.001)
             state = next(iter(self.bridge.clients.values()))
             state["deadline"] = time.monotonic() - 1
             self.bridge.poll()
@@ -224,6 +228,64 @@ class BridgeTests(unittest.TestCase):
             self.assertIn("4096 UTF-8 bytes", result["message"])
             connect.assert_not_called()
         self.assertEqual(notes, [("OK", "Итог", details)])
+
+    def test_feedback_log_follows_confirmed_delivery_and_is_bounded(self):
+        log_path = Path(self.temp.name) / "agent_feedback.jsonl"
+        notes = []
+        self.bridge.post_modeling_note = lambda *args: notes.append(args)
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(post_modeling_note, "WARNING", "Русский итог", "Подробности", self.path, log_path)
+            deadline = time.monotonic() + 3
+            while not future.done() and time.monotonic() < deadline:
+                self.bridge.poll()
+                time.sleep(0.001)
+            self.assertTrue(future.result(timeout=2)["success"])
+        entries = [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines()]
+        self.assertEqual(entries[0]["status"], "WARNING")
+        self.assertEqual(entries[0]["summary"], "Русский итог")
+        self.assertEqual(entries[0]["details"], "Подробности")
+        self.assertRegex(entries[0]["first_time"], r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+        self.assertEqual(entries[0]["last_time"], entries[0]["first_time"])
+        self.assertEqual(entries[0]["repeat_count"], 1)
+        self.assertNotIn(self.session["token"], log_path.read_text(encoding="utf-8"))
+
+        self.bridge.post_modeling_note = lambda *args: (_ for _ in ()).throw(RuntimeError("Rejected"))
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(post_modeling_note, "BLOCKED", "Не доставлено", "", self.path, log_path)
+            deadline = time.monotonic() + 3
+            while not future.done() and time.monotonic() < deadline:
+                self.bridge.poll()
+                time.sleep(0.001)
+            self.assertFalse(future.result(timeout=2)["success"])
+        self.assertEqual(len(log_path.read_text(encoding="utf-8").splitlines()), 1)
+
+        for index in range(blender_client.FEEDBACK_LOG_LIMIT + 5):
+            blender_client._record_feedback("OK", f"Note {index}", "", log_path,
+                                            f"2026-01-01T00:00:{index % 60:02d}Z")
+        entries = [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines()]
+        self.assertEqual(len(entries), blender_client.FEEDBACK_LOG_LIMIT)
+        self.assertEqual(entries[0]["summary"], "Note 5")
+        self.assertEqual(entries[-1]["summary"], "Note 204")
+
+    def test_feedback_log_compacts_only_consecutive_exact_duplicates(self):
+        log_path = Path(self.temp.name) / "clusters.jsonl"
+        for index in range(100):
+            blender_client._record_feedback(
+                "WARNING", "Нет измерения", "Нужен инструмент толщины", log_path,
+                f"2026-01-01T00:{index // 60:02d}:{index % 60:02d}Z")
+        entries = [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines()]
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["repeat_count"], 100)
+        self.assertEqual(entries[0]["first_time"], "2026-01-01T00:00:00Z")
+        self.assertEqual(entries[0]["last_time"], "2026-01-01T00:01:39Z")
+
+        blender_client._record_feedback("OK", "Продолжение", "", log_path, "2026-01-01T00:02:00Z")
+        blender_client._record_feedback(
+            "WARNING", "Нет измерения", "Нужен инструмент толщины", log_path,
+            "2026-01-01T00:02:01Z")
+        entries = [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines()]
+        self.assertEqual(len(entries), 3)
+        self.assertEqual([entry["repeat_count"] for entry in entries], [100, 1, 1])
 
 
 if __name__ == "__main__":

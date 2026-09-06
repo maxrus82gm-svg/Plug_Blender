@@ -58,7 +58,7 @@ class NoteResult(TypedDict):
     message: str
 
 
-def make_server(session_file=None):
+def make_server(session_file=None, feedback_log=None):
     server = FastMCP(
         "Astro Modeler",
         instructions="Use controlled tools in the connected Blender session; heavy geometry stays in Blender. Never auto-retry uncertain creating operations. After substantive mutating modelling operations, call post_modeling_note with brief user-facing engineering feedback, not chain-of-thought; explain missing capabilities when relevant. Also post on user request. Posting a note does not require another note.",
@@ -75,12 +75,18 @@ def make_server(session_file=None):
                            details: Annotated[str, Field(strict=True, max_length=1800)] = "") -> NoteResult:
         """Post engineering feedback to the Blender Sidebar, not internal reasoning.
 
-        Runtime history holds five notes, newest first; no scene/undo changes.
+        Runtime history holds 20 notes, newest first; no scene/undo changes.
         Entire UTF-8 request including token and newline must fit 4096 bytes.
         Use a short nonblank summary; details may explain a problem, missing
-        capability, recommendation or question. Does not trigger another note.
+        capability, recommendation or question. Use OK for a completed
+        substantive modelling result, WARNING for a risk or recoverable
+        limitation, and BLOCKED when safe progress needs a capability or user
+        decision. Do not post after routine reads, duplicate the same error, or
+        trigger another note from this tool. For one problem, perform at most
+        one useful read-only diagnostic, post one WARNING/BLOCKED, then stop
+        that dependent branch instead of retrying or posting repeated notes.
         """
-        return request_note(status, summary, details, session_file)
+        return request_note(status, summary, details, session_file, feedback_log)
 
     @server.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False))
     def create_box_at_cursor(size_x: PositiveSize, size_y: PositiveSize, size_z: PositiveSize) -> CubeResult:
@@ -118,5 +124,6 @@ def make_server(session_file=None):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Astro Modeler STDIO MCP server")
     parser.add_argument("--session-file", help="Optional explicit session descriptor for development/testing")
+    parser.add_argument("--feedback-log", help="Optional diagnostic feedback JSONL path for development/testing")
     args = parser.parse_args()
-    make_server(args.session_file).run(transport="stdio")
+    make_server(args.session_file, args.feedback_log).run(transport="stdio")

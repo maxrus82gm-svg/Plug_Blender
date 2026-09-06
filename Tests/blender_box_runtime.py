@@ -5,6 +5,7 @@ import json
 import math
 import os
 from pathlib import Path
+import re
 import sys
 import threading
 
@@ -98,7 +99,11 @@ def checked_note(status, summary, details=""):
     assert bpy.data.is_dirty == dirty
     assert data_counts == (len(bpy.data.scenes), len(bpy.data.meshes), len(bpy.data.texts))
     assert properties == [dict(block.items()) for block in (*bpy.data.scenes, *bpy.data.objects)]
-    assert astro_modeler._feedback[0] == dict(status=status, summary=summary, details=details)
+    note = astro_modeler._feedback[0]
+    assert note["status"] == status and note["summary"] == summary and note["details"] == details
+    assert re.fullmatch(r"\d{2}:\d{2}:\d{2}", note["first_time"])
+    assert re.fullmatch(r"\d{2}:\d{2}:\d{2}", note["last_time"])
+    assert type(note["repeat_count"]) is int and note["repeat_count"] >= 1
     note_checks.append(summary)
 
 
@@ -152,6 +157,30 @@ def control():
                         area.tag_redraw()
         elif action == "feedback_state":
             pass
+        elif action == "toggle_first_feedback":
+            note = astro_modeler._feedback[0]
+            before = astro_modeler._get_selected_context()
+            dirty = bpy.data.is_dirty
+            assert "FINISHED" in bpy.ops.astro_modeler.toggle_feedback(cluster_id=note["id"])
+            assert note["id"] in astro_modeler._expanded_feedback
+            assert astro_modeler._get_selected_context() == before and bpy.data.is_dirty == dirty
+            assert "FINISHED" in bpy.ops.astro_modeler.toggle_feedback(cluster_id=note["id"])
+            assert note["id"] not in astro_modeler._expanded_feedback
+        elif action == "clear_feedback":
+            before = {obj.name: fingerprint(obj) for obj in bpy.data.objects}
+            cursor = list(map(list, bpy.context.scene.cursor.matrix))
+            selected = astro_modeler._get_selected_context()
+            dirty = bpy.data.is_dirty
+            data_counts = (len(bpy.data.scenes), len(bpy.data.meshes), len(bpy.data.texts))
+            properties = [dict(block.items()) for block in (*bpy.data.scenes, *bpy.data.objects)]
+            assert "FINISHED" in bpy.ops.astro_modeler.clear_feedback()
+            assert not astro_modeler._feedback
+            assert {obj.name: fingerprint(obj) for obj in bpy.data.objects} == before
+            assert list(map(list, bpy.context.scene.cursor.matrix)) == cursor
+            assert astro_modeler._get_selected_context() == selected
+            assert bpy.data.is_dirty == dirty
+            assert data_counts == (len(bpy.data.scenes), len(bpy.data.meshes), len(bpy.data.texts))
+            assert properties == [dict(block.items()) for block in (*bpy.data.scenes, *bpy.data.objects)]
         elif action == "feedback_save_load":
             assert astro_modeler._feedback
             bpy.ops.wm.save_as_mainfile(filepath=str(RUNTIME / "feedback-smoke.blend"))

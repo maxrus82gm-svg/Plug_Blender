@@ -29,12 +29,15 @@ async def main(selected_context=False, box=False, note=False):
         session_name, result_name, tool_name = "box-session.json", "codex-note-result.json", "post_modeling_note"
     config = {
         "command": str(ROOT / ".venv/Scripts/python.exe"),
-        "args": [str(ROOT / "MCP/server.py"), "--session-file", str(RUNTIME / session_name)],
+        "args": [str(ROOT / "MCP/server.py"), "--session-file", str(RUNTIME / session_name),
+                 "--feedback-log", str(RUNTIME / "box-agent-feedback.jsonl")],
         "cwd": str(ROOT), "required": True,
     }
     log_path = RUNTIME / "codex-app-server.log"
     with log_path.open("wb") as log:
-        process = await asyncio.create_subprocess_exec(executable, "app-server", "--stdio", stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=log, cwd=ROOT)
+        process = await asyncio.create_subprocess_exec(executable, "app-server", "--stdio",
+            stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=log,
+            cwd=ROOT, limit=1024 * 1024)
         counter = 0
 
         async def send(method, params, notification=False):

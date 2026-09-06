@@ -1,6 +1,6 @@
-# Astro Modeler — установка и проверка прототипа
+# Astro Modeler — установка и проверка
 
-TASK 003: один инструмент `create_cube` для одной явно подключённой Blender session. Проверенная среда — Windows, Blender 5.0.1 с Python 3.11.13, внешний Python 3.13.8 и Codex CLI 0.153.3. Другие версии и ОС не проверены. Архитектура прототипа описана в `Documentation/04_Архитектура.md`.
+Astro Modeler предоставляет одной явно подключённой Blender session четыре public MCP tools: `create_cube`, `get_selected_context`, `create_box_at_cursor`, `post_modeling_note`. Проверенная среда — Windows, Blender 5.0.1 с Python 3.11.13, внешний Python 3.13.8 и Codex CLI. Другие версии и ОС не проверены. Архитектура описана в `Documentation/04_Архитектура.md`.
 
 ## Подготовка из корня репозитория
 
@@ -22,6 +22,8 @@ MCP использует официальный Python SDK `mcp==1.29.1` и ег
 3. Включи Astro Modeler. В 3D View открой Sidebar клавишей N → Astro Modeler.
 4. В нужной сцене выбери Object Mode и нажми **Start Integration**. Статус: `Listening on localhost`.
 
+После обновления Python-кода установленного add-on Blender может продолжать использовать уже загруженную старую версию модуля. Если поведение не соответствует свежему source или ZIP, полностью перезапусти Blender до вывода, что новый код не работает.
+
 Порядок установки ZIP описан в [руководстве Blender по Add-ons](https://docs.blender.org/manual/en/4.4/editors/preferences/addons.html). Сам ZIP дополнительно проверен через операторы install/enable в Blender 5.0.1 с изолированным пользовательским каталогом.
 
 Интеграция включается явно и принимает команды только в этой сессии. Другая сессия не сможет занять тот же `127.0.0.1:55881`. Если порт занят, останови Astro Modeler в предыдущей сессии; случайный свободный порт автоматически не выбирается. После загрузки другого `.blend` снова нажми Start Integration. Кнопка Stop Integration и отключение add-on освобождают соединение.
@@ -41,13 +43,26 @@ codex mcp get astro_modeler
 
 Codex запускает MCP server как STDIO subprocess сам; запускать `MCP/server.py` вручную в отдельном терминале не нужно. После добавления перезапусти Codex app для перечитывания MCP settings. Настройка STDIO и команда `codex mcp add` подтверждены [официальной документацией Codex MCP](https://developers.openai.com/codex/mcp).
 
-В диалоге Codex попроси: «Создай куб в Blender через Astro Modeler». Должен быть доступен только `create_cube`, без аргументов. Пример результата:
+Подтверждённый runtime: Astro Modeler зарегистрирован как внешний STDIO MCP Codex; GPT-5.6 Sol видит все четыре tools. Sol MEDIUM прошёл моделирующие и Agent Feedback вызовы, Sol LOW ранее успешно выполнял простые tool-вызовы. Это не делает LOW достаточным для любой будущей TASK: модель и reasoning выбираются по сложности, а текущая рабочая практика для ближайших технических TASK — GPT-5.6 Sol MEDIUM.
+
+В диалоге Codex должны быть доступны четыре инструмента:
+
+- `create_cube()` — новый куб 2 × 2 × 2 в мировом начале координат;
+- `get_selected_context()` — компактный read-only контекст selection, active object и 3D Cursor без mesh data;
+- `create_box_at_cursor(size_x, size_y, size_z)` — world-aligned Box в позиции Cursor;
+- `post_modeling_note(status, summary, details="")` — сообщение в `AGENT FEEDBACK LOG` Blender.
+
+Пример результата `create_cube`:
 
 ```json
 {"success": true, "object_name": "Cube.001", "message": "Cube created in the current scene."}
 ```
 
 Операция добавляет отдельный куб размером 2 × 2 × 2 единицы Blender в мировом начале координат и делает его активным. Повторный вызов добавляет ещё один куб в том же месте: объекты могут визуально перекрываться, поэтому проверяй имя в Outliner. Имя назначает Blender; оно зависит от существующих объектов. Undo/transactions этим прототипом не гарантируются.
+
+`AGENT FEEDBACK LOG` находится в Sidebar / N-panel вкладки Astro Modeler. Он показывает новые записи сверху, различает `OK`, `WARNING`, `BLOCKED`, выводит диапазон времени, repeat count, полный summary и компактный preview непустых details; полный details раскрывается локальной кнопкой. Состояние раскрытия служебное и не попадает в Scene/`.blend`. До 20 последовательных clusters хранятся newest-first. Точно одинаковые соседние notes по `status + summary + details` объединяются; после другой note тот же текст начинает новый cluster. `Clear Feedback` очищает только runtime feedback; Start Integration, загрузка другого `.blend` и disable/unregister также начинают с пустого списка. Feedback не хранится в `.blend`, Scene/Object properties или Text datablocks.
+
+После подтверждённой доставки note MCP-клиент обновляет компактную JSONL-историю `<repo>/.runtime/agent_feedback.jsonl`. Cluster содержит только `first_time`, `last_time`, `repeat_count`, `status`, `summary`, `details`; последовательные точные дубли агрегируются так же, как в UI. Файл удерживает последние 200 clusters; session token и Selected Context туда не попадают. Это вторичная локальная диагностика. Новая TASK не читает файл автоматически: для конкретного расследования используй небольшой tail, диапазон или фильтр, не весь log.
 
 ## Ошибки и границы
 
@@ -65,7 +80,7 @@ Codex запускает MCP server как STDIO subprocess сам; запуск
 .\.venv\Scripts\python.exe Tests/smoke_mcp.py
 ```
 
-Восемь socket/protocol tests проверяют ограничения входа, повтор, ошибки и очистку. SDK smoke проверяет реальный STDIO handshake, единственный tool и ошибку отсутствующей сессии.
+Socket/protocol tests проверяют ограничения входа, ошибки, подтверждённую доставку feedback и bounded JSONL. SDK smoke проверяет реальный STDIO handshake, discovery четырёх tools и ошибки отсутствующей сессии.
 
 Для теста через установленный Codex сначала останови обычную интеграцию. В отдельном терминале запусти Blender с `--factory-startup --python Tests/blender_runtime.py`, указав фактический путь к Blender executable и абсолютный путь к скрипту. Затем из корня проекта:
 
