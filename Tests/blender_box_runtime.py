@@ -212,6 +212,16 @@ def control():
             assert "FINISHED" in bpy.ops.astro_modeler.get_modifiers()
             assert len(astro_modeler._modifier_targets) == 2
             assert [item["modifier_type"] for item in astro_modeler._modifier_targets] == ["BEVEL", "BEVEL"]
+            cached_items = astro_modeler._modifier_enum_items()
+            assert cached_items is astro_modeler._modifier_enum_cache
+            assert [item[0] for item in cached_items] == ["0", "1"]
+            assert [item[1] for item in cached_items] == ["Bevel Default", "Bevel Tuned"]
+            stable_ids = [[id(part) for part in item] for item in cached_items]
+            for _ in range(25):
+                astro_modeler._redraw_feedback()
+                repeated = astro_modeler._modifier_enum_items()
+                assert repeated is cached_items
+                assert [[id(part) for part in item] for item in repeated] == stable_ids
             settings.modifier_target = "1"
         elif action == "modifier_compare":
             obj = bpy.context.view_layer.objects.active
@@ -239,7 +249,7 @@ def control():
                 try:
                     astro_modeler._resolve_modifier_target()
                 except RuntimeError as exc:
-                    assert "stale" in str(exc).lower()
+                    assert str(exc) == astro_modeler.INSPECTOR_UI_RU["stale_selection"]
                 else:
                     raise AssertionError("Stale modifier selection was accepted")
             finally:

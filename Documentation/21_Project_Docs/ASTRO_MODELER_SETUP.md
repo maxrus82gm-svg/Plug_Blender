@@ -15,7 +15,7 @@ python -m venv .venv
 
 Каноническая identity development build хранится только в `Plugins/AstroModeler/astro_modeler/version.py`: `PRODUCT_VERSION`, `BUILD_NUMBER`, вычисляемый `FULL_VERSION`. Add-on использует product tuple для совместимого `bl_info`, а `FULL_VERSION` — для имени ZIP и видимой build identity. Сборка создаётся в `<repo>/dist/astro_modeler-<FULL_VERSION>.zip` и включает `version.py`.
 
-Versioned artifacts не перезаписываются и не удаляются автоматически. Если ZIP текущего `FULL_VERSION` уже существует, build завершается ошибкой и требует увеличить `BUILD_NUMBER`: один version string соответствует одному конкретному artifact. Исторические artifacts сохраняются; текущий development build TASK 016 — `dist/astro_modeler-0.1.0.6.zip`.
+Versioned artifacts не перезаписываются и не удаляются автоматически. Если ZIP текущего `FULL_VERSION` уже существует, build завершается ошибкой и требует увеличить `BUILD_NUMBER`: один version string соответствует одному конкретному artifact. Исторические artifacts сохраняются; текущий development build TASK 016 — `dist/astro_modeler-0.1.0.7.zip`.
 
 MCP использует официальный Python SDK `mcp==1.29.1` и его FastMCP v1 API. Прямая зависимость закреплена; транзитивные версии разрешает pip, полного lockfile в прототипе нет. Add-on использует только Blender `bpy` и стандартную библиотеку, установка pip-пакетов внутрь Blender не нужна. Сведения об SDK: [официальный Python SDK MCP](https://github.com/modelcontextprotocol/python-sdk/tree/v1.x).
 

@@ -42,6 +42,7 @@ _hud_until = 0.0
 _hud_draw_handle = None
 _hud_timeout_seconds = 3.0
 _modifier_targets = []
+_modifier_enum_cache = []
 _modifier_result = None
 _inspector_message = INSPECTOR_UI_RU["initial_help"]
 _default_explanation_instruction = (
@@ -197,8 +198,9 @@ def _inspector_settings():
 
 
 def _modifier_enum_items(_self=None, _context=None):
-    return [(str(index), f'#{target["stack_index"] + 1} · {target["modifier_name"]} · {target["modifier_type"]}', "")
-            for index, target in enumerate(_modifier_targets)]
+    # Blender keeps pointers to strings returned by a dynamic EnumProperty.
+    # These tuples must therefore outlive the callback and subsequent redraws.
+    return _modifier_enum_cache
 
 
 def _active_modifier_object():
@@ -215,6 +217,7 @@ def _active_modifier_object():
 def _clear_modifier_inspector(message=None):
     global _modifier_result, _inspector_message
     _modifier_targets.clear()
+    _modifier_enum_cache.clear()
     _modifier_result = None
     _inspector_message = message or INSPECTOR_UI_RU["initial_help"]
     _redraw_feedback()
@@ -230,6 +233,11 @@ def _get_modifiers():
             "stack_index": index, "modifier_name": modifier.name,
             "modifier_type": modifier.type,
         })
+    _modifier_enum_cache[:] = [
+        (str(index), target["modifier_name"],
+         f'{target["modifier_type"]} · Позиция в стеке: {target["stack_index"] + 1}')
+        for index, target in enumerate(_modifier_targets)
+    ]
     _modifier_result = None
     settings = _inspector_settings()
     if _modifier_targets:
