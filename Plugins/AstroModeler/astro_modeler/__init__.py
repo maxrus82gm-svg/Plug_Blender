@@ -43,6 +43,7 @@ _hud_draw_handle = None
 _hud_timeout_seconds = 3.0
 _modifier_targets = []
 _modifier_enum_cache = []
+_modifier_runtime_refs = []
 _modifier_result = None
 _inspector_message = INSPECTOR_UI_RU["initial_help"]
 _default_explanation_instruction = (
@@ -218,6 +219,7 @@ def _clear_modifier_inspector(message=None):
     global _modifier_result, _inspector_message
     _modifier_targets.clear()
     _modifier_enum_cache.clear()
+    _modifier_runtime_refs.clear()
     _modifier_result = None
     _inspector_message = message or INSPECTOR_UI_RU["initial_help"]
     _redraw_feedback()
@@ -227,7 +229,9 @@ def _get_modifiers():
     global _modifier_result, _inspector_message
     obj = _active_modifier_object()
     _modifier_targets.clear()
+    _modifier_runtime_refs.clear()
     for index, modifier in enumerate(obj.modifiers):
+        _modifier_runtime_refs.append(modifier)
         _modifier_targets.append({
             "object_pointer": obj.as_pointer(), "object_name": obj.name,
             "stack_index": index, "modifier_name": modifier.name,
@@ -253,7 +257,8 @@ def _resolve_modifier_target():
     obj = _active_modifier_object()
     settings = _inspector_settings()
     try:
-        target = _modifier_targets[int(settings.modifier_target)]
+        target_slot = int(settings.modifier_target)
+        target = _modifier_targets[target_slot]
     except (ValueError, IndexError):
         raise RuntimeError(INSPECTOR_UI_RU["choose_modifier_first"]) from None
     if obj.as_pointer() != target["object_pointer"] or obj.name != target["object_name"]:
@@ -263,6 +268,12 @@ def _resolve_modifier_target():
         raise RuntimeError(INSPECTOR_UI_RU["stale_selection"])
     modifier = obj.modifiers[index]
     if modifier.name != target["modifier_name"] or modifier.type != target["modifier_type"]:
+        raise RuntimeError(INSPECTOR_UI_RU["stale_selection"])
+    try:
+        original_pointer = _modifier_runtime_refs[target_slot].as_pointer()
+    except (IndexError, ReferenceError):
+        raise RuntimeError(INSPECTOR_UI_RU["stale_selection"]) from None
+    if not original_pointer or original_pointer != modifier.as_pointer():
         raise RuntimeError(INSPECTOR_UI_RU["stale_selection"])
     return obj, modifier, target
 

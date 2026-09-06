@@ -256,6 +256,47 @@ def control():
                 obj.modifiers[1].name = target["modifier_name"]
             (RUNTIME / "modifier-diff.json").write_text(
                 json.dumps(astro_modeler._modifier_result, ensure_ascii=False, indent=2), encoding="utf-8")
+        elif action == "modifier_identity":
+            if bpy.context.mode != "OBJECT":
+                bpy.ops.object.mode_set(mode="OBJECT")
+            obj = bpy.context.view_layer.objects.active
+            assert obj is not None and obj.type == "MESH" and obj in bpy.context.selected_objects
+            obj.modifiers.clear()
+            original = obj.modifiers.new("Bevel", "BEVEL")
+            assert "FINISHED" in bpy.ops.astro_modeler.get_modifiers()
+            original_target = dict(astro_modeler._modifier_targets[0])
+            obj.modifiers.remove(original)
+            replacement = obj.modifiers.new("Bevel", "BEVEL")
+            assert (0, replacement.name, replacement.type) == (
+                original_target["stack_index"], original_target["modifier_name"],
+                original_target["modifier_type"])
+            try:
+                stale_result = bpy.ops.astro_modeler.compare_modifier()
+            except RuntimeError:
+                stale_result = {"CANCELLED"}
+            assert "CANCELLED" in stale_result
+            assert astro_modeler._inspector_message == astro_modeler.INSPECTOR_UI_RU["stale_selection"]
+
+            assert "FINISHED" in bpy.ops.astro_modeler.get_modifiers()
+            assert "FINISHED" in bpy.ops.astro_modeler.compare_modifier()
+            assert astro_modeler._modifier_result["modifier"]["name"] == "Bevel"
+            assert astro_modeler._modifier_result["changed_properties"] == []
+
+            second = obj.modifiers.new("Bevel", "BEVEL")
+            second.segments = 2
+            assert second.name == "Bevel.001"
+            assert "FINISHED" in bpy.ops.astro_modeler.get_modifiers()
+            settings = bpy.context.window_manager.astro_modeler_inspector_settings
+            settings.modifier_target = "1"
+            assert "FINISHED" in bpy.ops.astro_modeler.compare_modifier()
+            assert astro_modeler._modifier_result["modifier"]["name"] == "Bevel.001"
+            assert "segments" in {
+                item["property"] for item in astro_modeler._modifier_result["changed_properties"]}
+            identity_evidence = {
+                "stale_replacement_rejected": True,
+                "unchanged_target": "Bevel",
+                "same_type_target": "Bevel.001",
+            }
         elif action == "modifier_format":
             assert astro_modeler.format_display_value(0.10000000149011612) == "0.1"
             assert astro_modeler.format_display_value(0.003000000026077032) == "0.003"
@@ -343,6 +384,8 @@ def control():
                           inspector_message=astro_modeler._inspector_message)
             if action == "modifier_compare":
                 result.update(dirty_before=dirty_before, dirty_after=bpy.data.is_dirty)
+        if action == "modifier_identity":
+            result.update(identity_evidence)
     except Exception as exc:
         result = {"nonce": nonce, "success": False, "error": repr(exc)}
     (RUNTIME / "box-state.json").write_text(json.dumps(result), encoding="utf-8")

@@ -114,7 +114,17 @@ async def run_real_sol_modifier():
 
 
 async def main(real_sol=False, visual_only=False, compact_ui=False, version_only=False,
-               activity_ui=False, modifier_inspector=False, format_only=False):
+               activity_ui=False, modifier_inspector=False, format_only=False,
+               identity_only=False):
+    if identity_only:
+        state = await control("modifier_identity")
+        await control("finish")
+        print(json.dumps({"success": True, "targeted": "modifier runtime identity",
+                          "full_version": state["full_version"],
+                          "stale_replacement_rejected": state["stale_replacement_rejected"],
+                          "targets": [state["unchanged_target"], state["same_type_target"]]},
+                         ensure_ascii=False))
+        return
     params = StdioServerParameters(command=sys.executable,
         args=[str(ROOT / "MCP/server.py"), "--session-file", str(DESCRIPTOR),
               "--feedback-log", str(RUNTIME / "box-agent-feedback.jsonl")])
@@ -365,6 +375,8 @@ if __name__ == "__main__":
     parser.add_argument("--activity-ui", action="store_true")
     parser.add_argument("--modifier-inspector", action="store_true")
     parser.add_argument("--format-only", action="store_true")
+    parser.add_argument("--identity-only", action="store_true")
     args = parser.parse_args()
     asyncio.run(main(args.real_sol, args.visual_only, args.compact_ui, args.version_only,
-                     args.activity_ui, args.modifier_inspector, args.format_only))
+                     args.activity_ui, args.modifier_inspector, args.format_only,
+                     args.identity_only))
