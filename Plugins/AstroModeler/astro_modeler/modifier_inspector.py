@@ -1,5 +1,7 @@
 """Deterministic modifier comparison helpers; no Blender scene access here."""
 
+import struct
+
 EXCLUDED_PROPERTIES = {
     "rna_type", "name", "type", "show_expanded", "is_active", "use_pin_to_last",
 }
@@ -44,7 +46,21 @@ INSPECTOR_UI_RU = {
 def format_display_value(value):
     """Human-readable UI formatting; comparison/result values stay untouched."""
     if type(value) is float:
-        return format(value, ".8g")
+        try:
+            blender_bits = struct.unpack(">I", struct.pack(">f", value))[0]
+        except (OverflowError, struct.error):
+            return format(value, ".8g")
+        for significant_digits in range(1, 10):
+            text = format(value, f".{significant_digits}g")
+            try:
+                displayed_bits = struct.unpack(">I", struct.pack(">f", float(text)))[0]
+                # One float32 ULP is presentation noise at Blender's stored
+                # precision; raw values and exact comparison remain untouched.
+                if abs(displayed_bits - blender_bits) <= 1:
+                    return text
+            except (OverflowError, struct.error, ValueError):
+                continue
+        return format(value, ".9g")
     if isinstance(value, list):
         return "[" + ", ".join(format_display_value(item) for item in value) + "]"
     if isinstance(value, dict):

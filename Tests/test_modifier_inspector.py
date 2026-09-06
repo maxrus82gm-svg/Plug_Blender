@@ -46,10 +46,13 @@ class ModifierInspectorTests(unittest.TestCase):
     def test_display_format_does_not_change_exact_values(self):
         default = 0.10000000149011612
         current = 0.003000000026077032
+        noisy = 2.429999828338623
         self.assertEqual(module.format_display_value(default), "0.1")
         self.assertEqual(module.format_display_value(current), "0.003")
+        self.assertEqual(module.format_display_value(noisy), "2.43")
         self.assertEqual(default, 0.10000000149011612)
         self.assertEqual(current, 0.003000000026077032)
+        self.assertEqual(noisy, 2.429999828338623)
 
     def test_only_meaningful_exact_changes_are_returned(self):
         properties = [

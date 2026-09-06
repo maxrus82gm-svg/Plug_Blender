@@ -15,7 +15,7 @@ python -m venv .venv
 
 Каноническая identity development build хранится только в `Plugins/AstroModeler/astro_modeler/version.py`: `PRODUCT_VERSION`, `BUILD_NUMBER`, вычисляемый `FULL_VERSION`. Add-on использует product tuple для совместимого `bl_info`, а `FULL_VERSION` — для имени ZIP и видимой build identity. Сборка создаётся в `<repo>/dist/astro_modeler-<FULL_VERSION>.zip` и включает `version.py`.
 
-Versioned artifacts не перезаписываются и не удаляются автоматически. Если ZIP текущего `FULL_VERSION` уже существует, build завершается ошибкой и требует увеличить `BUILD_NUMBER`: один version string соответствует одному конкретному artifact. Исторические artifacts сохраняются; текущий development build TASK 016 — `dist/astro_modeler-0.1.0.7.zip`.
+Versioned artifacts не перезаписываются и не удаляются автоматически. Если ZIP текущего `FULL_VERSION` уже существует, build завершается ошибкой и требует увеличить `BUILD_NUMBER`: один version string соответствует одному конкретному artifact. Исторические artifacts сохраняются; текущий development build TASK 016 — `dist/astro_modeler-0.1.0.9.zip`.
 
 MCP использует официальный Python SDK `mcp==1.29.1` и его FastMCP v1 API. Прямая зависимость закреплена; транзитивные версии разрешает pip, полного lockfile в прототипе нет. Add-on использует только Blender `bpy` и стандартную библиотеку, установка pip-пакетов внутрь Blender не нужна. Сведения об SDK: [официальный Python SDK MCP](https://github.com/modelcontextprotocol/python-sdk/tree/v1.x).
 
@@ -113,6 +113,6 @@ New-Item -ItemType Directory -Force -Path $env:BLENDER_USER_SCRIPTS,$env:BLENDER
 & '<BLENDER_EXECUTABLE>' --background --factory-startup --python-exit-code 1 --python Tests/blender_install.py
 ```
 
-Это изолированная проверка установки; она не сохраняет пользовательские preferences. Первоначально проверялась цепочка через MCP-клиент установленного Codex app-server и реальный открытый Blender, без имитации `bpy`. После этого пользователь установил Astro Modeler в рабочий Blender, нажал Start Integration и подтвердил создание `Cube` по команде из обычного текстового Codex. TASK 003 принята пользователем; итог синхронизирован в `Documentation/20_SplitDoc/TASK_HISTORY.md`. Постоянная конфигурация MCP агентом не изменялась.
+Это изолированная проверка установки; она не сохраняет пользовательские preferences. Первоначально проверялась цепочка через MCP-клиент установленного Codex app-server и реальный открытый Blender, без имитации `bpy`. После этого пользователь установил Astro Modeler в рабочий Blender, нажал Start Integration и подтвердил создание `Cube` по команде из обычного текстового Codex. TASK 003 принята пользователем; итог синхронизирован в `Documentation/20_SplitDoc/История_задач.md`. Постоянная конфигурация MCP агентом не изменялась.
 
 `.venv/`, `.runtime/`, `dist/` и Python caches исключены из Git. Runtime-скрипты служат только тестам; они не добавляют публичные инструменты чтения сцены, Python execution или screenshots.

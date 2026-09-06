@@ -259,6 +259,9 @@ def control():
         elif action == "modifier_format":
             assert astro_modeler.format_display_value(0.10000000149011612) == "0.1"
             assert astro_modeler.format_display_value(0.003000000026077032) == "0.003"
+            noisy = 2.429999828338623
+            assert astro_modeler.format_display_value(noisy) == "2.43"
+            assert noisy == 2.429999828338623
             ui = astro_modeler.INSPECTOR_UI_RU
             assert astro_modeler.ASTRO_MODELER_PT_modifier_inspector.bl_label == "АНАЛИЗ МОДИФИКАТОРОВ"
             assert astro_modeler.ASTRO_MODELER_OT_get_modifiers.bl_label == "Получить модификаторы"
