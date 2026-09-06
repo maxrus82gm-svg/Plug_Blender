@@ -80,7 +80,8 @@ async def run_real_sol_feedback():
     assert process.returncode == 0, output.decode("utf-8", errors="replace")
 
 
-async def main(real_sol=False, visual_only=False, compact_ui=False, version_only=False):
+async def main(real_sol=False, visual_only=False, compact_ui=False, version_only=False,
+               activity_ui=False):
     params = StdioServerParameters(command=sys.executable,
         args=[str(ROOT / "MCP/server.py"), "--session-file", str(DESCRIPTOR),
               "--feedback-log", str(RUNTIME / "box-agent-feedback.jsonl")])
@@ -95,6 +96,41 @@ async def main(real_sol=False, visual_only=False, compact_ui=False, version_only
                 await control("finish")
                 print(json.dumps({"success": True, "full_version": state["full_version"]},
                                  ensure_ascii=False))
+                return
+            if activity_ui:
+                await control("clear_activity")
+                before = await control("snapshot")
+                context = await session.call_tool("get_selected_context", {})
+                assert context.structuredContent["success"]
+                note = await session.call_tool("post_modeling_note", {
+                    "status": "OK", "summary": "Activity runtime check", "details": ""})
+                assert note.structuredContent["success"]
+                error = await session.call_tool("create_box_at_cursor", {
+                    "size_x": 1e40, "size_y": 3, "size_z": 4})
+                assert not error.structuredContent["success"]
+                activity = await control("activity_state")
+                assert activity["activity_counts"] == {
+                    "get_selected_context": 1,
+                    "post_modeling_note": 1,
+                    "create_box_at_cursor": 1,
+                }
+                assert activity["last_activity"]["tool_name"] == "create_box_at_cursor"
+                assert activity["last_activity"]["outcome"] == "ERROR"
+                assert activity["hud_text"] == "Astro Modeler · create_box_at_cursor"
+                assert activity["hud_handler"]
+                timeout = await control("activity_timeout")
+                assert timeout["hud_text"] == "Astro Modeler · create_box_at_cursor"
+                changed = await control("activity_settings", show_hud=False, text_size=31,
+                                        text_color=[0.1, 0.8, 0.2, 1.0])
+                assert changed["hud_settings"]["show_hud"] is False
+                assert changed["hud_settings"]["text_size"] == 31
+                assert await control("snapshot") == before
+                cleared = await control("clear_activity")
+                assert not cleared["activity_counts"] and cleared["last_activity"] is None
+                assert await control("snapshot") == before
+                await control("finish")
+                print(json.dumps({"success": True, "targeted": "agent activity HUD",
+                                  "tools": 4}, ensure_ascii=False))
                 return
             if compact_ui:
                 await control("prepare_feedback")
@@ -266,5 +302,7 @@ if __name__ == "__main__":
     parser.add_argument("--visual-only", action="store_true")
     parser.add_argument("--compact-ui", action="store_true")
     parser.add_argument("--version-only", action="store_true")
+    parser.add_argument("--activity-ui", action="store_true")
     args = parser.parse_args()
-    asyncio.run(main(args.real_sol, args.visual_only, args.compact_ui, args.version_only))
+    asyncio.run(main(args.real_sol, args.visual_only, args.compact_ui, args.version_only,
+                     args.activity_ui))

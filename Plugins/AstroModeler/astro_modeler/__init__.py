@@ -16,10 +16,12 @@ bl_info = {
 }
 
 import bpy
+import blf
 from datetime import datetime
 import math
 import struct
 import textwrap
+import time
 from collections import deque
 from bpy.app.handlers import persistent
 
@@ -31,6 +33,12 @@ _timer_ticks = 0
 _feedback = deque(maxlen=20)
 _expanded_feedback = set()
 _next_feedback_id = 1
+_activity_tools = ("create_cube", "get_selected_context", "create_box_at_cursor", "post_modeling_note")
+_activity_counts = {}
+_last_activity = None
+_hud_until = 0.0
+_hud_draw_handle = None
+_hud_timeout_seconds = 3.0
 
 
 def _redraw_feedback():
@@ -38,6 +46,74 @@ def _redraw_feedback():
         for area in window.screen.areas:
             if area.type == "VIEW_3D":
                 area.tag_redraw()
+
+
+def _activity_settings():
+    manager = getattr(bpy.context, "window_manager", None)
+    return getattr(manager, "astro_modeler_activity_settings", None)
+
+
+def _hud_settings_changed(_self=None, _context=None):
+    _redraw_feedback()
+
+
+def _activity_event(tool_name, outcome):
+    """Record one accepted bridge invocation, then update its final outcome."""
+    global _last_activity, _hud_until
+    if tool_name not in _activity_tools:
+        return
+    if outcome is None:
+        _activity_counts[tool_name] = _activity_counts.get(tool_name, 0) + 1
+        outcome = "RUNNING"
+    _last_activity = {
+        "tool_name": tool_name,
+        "call_count": _activity_counts[tool_name],
+        "last_time": datetime.now().strftime("%H:%M:%S"),
+        "outcome": outcome,
+    }
+    _hud_until = time.monotonic() + _hud_timeout_seconds
+    if not bpy.app.timers.is_registered(_hud_timeout_tick):
+        bpy.app.timers.register(_hud_timeout_tick, first_interval=0.25)
+    _redraw_feedback()
+
+
+def _clear_activity(clear_counts=True):
+    global _last_activity, _hud_until
+    if clear_counts:
+        _activity_counts.clear()
+    _last_activity = None
+    _hud_until = 0.0
+    if bpy.app.timers.is_registered(_hud_timeout_tick):
+        bpy.app.timers.unregister(_hud_timeout_tick)
+    _redraw_feedback()
+
+
+def _hud_timeout_tick():
+    remaining = _hud_until - time.monotonic()
+    _redraw_feedback()
+    return min(0.25, remaining) if remaining > 0 else None
+
+
+def _activity_hud_text():
+    return None if _last_activity is None else f'Astro Modeler · {_last_activity["tool_name"]}'
+
+
+def _activity_hud_visible(now=None):
+    return _last_activity is not None and (time.monotonic() if now is None else now) < _hud_until
+
+
+def _draw_activity_hud():
+    settings = _activity_settings()
+    if settings is None or not settings.show_hud or not _activity_hud_visible():
+        return
+    text = _activity_hud_text()
+    font_id = 0
+    blf.size(font_id, settings.text_size)
+    blf.color(font_id, *settings.text_color)
+    width, _height = blf.dimensions(font_id, text)
+    region = bpy.context.region
+    blf.position(font_id, max(16, (region.width - width) / 2), region.height * 0.82, 0)
+    blf.draw(font_id, text)
 
 
 def _post_modeling_note(status, summary, details=""):
@@ -207,7 +283,8 @@ def start(session_file=None):
     if _bridge is not None:
         raise RuntimeError("Astro Modeler is already running.")
     bridge = Bridge(_create_cube, session_file=session_file, get_selected_context=_get_selected_context,
-                    create_box_at_cursor=_create_box_at_cursor, post_modeling_note=_post_modeling_note)
+                    create_box_at_cursor=_create_box_at_cursor, post_modeling_note=_post_modeling_note,
+                    activity_callback=_activity_event)
     try:
         bridge.start()
         _bridge = bridge
@@ -234,6 +311,7 @@ def _on_load(_):
     global _last_message
     stop()
     _clear_feedback()
+    _clear_activity(clear_counts=False)
     _last_message = "Stopped after file load; reconnect explicitly"
 
 
@@ -287,6 +365,26 @@ class ASTRO_MODELER_OT_toggle_feedback(bpy.types.Operator):
         return {"FINISHED"}
 
 
+class ASTRO_MODELER_OT_clear_activity(bpy.types.Operator):
+    bl_idname = "astro_modeler.clear_activity"
+    bl_label = "Clear Statistics"
+    bl_description = "Clear Astro Modeler runtime tool usage statistics"
+
+    def execute(self, context):
+        _clear_activity()
+        return {"FINISHED"}
+
+
+class ASTRO_MODELER_PG_activity_settings(bpy.types.PropertyGroup):
+    show_hud: bpy.props.BoolProperty(
+        name="Show HUD", default=True, update=_hud_settings_changed)
+    text_size: bpy.props.IntProperty(
+        name="Text Size", default=24, min=12, max=48, update=_hud_settings_changed)
+    text_color: bpy.props.FloatVectorProperty(
+        name="Text Color", subtype="COLOR_GAMMA", size=4, min=0.0, max=1.0,
+        default=(0.2, 1.0, 0.3, 1.0), update=_hud_settings_changed)
+
+
 class ASTRO_MODELER_PT_status(bpy.types.Panel):
     bl_label = "Astro Modeler"
     bl_idname = "ASTRO_MODELER_PT_status"
@@ -311,7 +409,7 @@ class ASTRO_MODELER_PT_feedback(bpy.types.Panel):
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
     bl_category = "Astro Modeler"
-    bl_order = 1
+    bl_order = 2
 
     def draw(self, context):
         layout = self.layout
@@ -350,21 +448,67 @@ class ASTRO_MODELER_PT_feedback(bpy.types.Panel):
                     operator.cluster_id = note["id"]
 
 
+class ASTRO_MODELER_PT_activity(bpy.types.Panel):
+    bl_label = "AGENT ACTIVITY"
+    bl_idname = "ASTRO_MODELER_PT_activity"
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "Astro Modeler"
+    bl_order = 1
+
+    def draw(self, context):
+        layout = self.layout
+        settings = context.window_manager.astro_modeler_activity_settings
+        layout.prop(settings, "show_hud")
+        layout.prop(settings, "text_size")
+        layout.prop(settings, "text_color")
+        layout.separator()
+        if _last_activity is None:
+            layout.label(text="Last tool: None", icon="INFO")
+        else:
+            layout.label(text=f'Last tool: {_last_activity["tool_name"]}')
+            layout.label(text=f'Result: {_last_activity["outcome"]}')
+            layout.label(text=f'Time: {_last_activity["last_time"]}', icon="TIME")
+        layout.label(text="TOOL USAGE")
+        used = False
+        for tool_name in _activity_tools:
+            count = _activity_counts.get(tool_name, 0)
+            if count:
+                layout.label(text=f"{tool_name}  ×{count}")
+                used = True
+        if not used:
+            layout.label(text="No tool calls yet")
+        layout.operator("astro_modeler.clear_activity", icon="TRASH")
+
+
 _classes = (ASTRO_MODELER_OT_start, ASTRO_MODELER_OT_stop, ASTRO_MODELER_OT_clear_feedback,
-            ASTRO_MODELER_OT_toggle_feedback,
-            ASTRO_MODELER_PT_status, ASTRO_MODELER_PT_feedback)
+            ASTRO_MODELER_OT_toggle_feedback, ASTRO_MODELER_OT_clear_activity,
+            ASTRO_MODELER_PG_activity_settings,
+            ASTRO_MODELER_PT_status, ASTRO_MODELER_PT_activity, ASTRO_MODELER_PT_feedback)
 
 
 def register():
+    global _hud_draw_handle
     for cls in _classes:
         bpy.utils.register_class(cls)
+    bpy.types.WindowManager.astro_modeler_activity_settings = bpy.props.PointerProperty(
+        type=ASTRO_MODELER_PG_activity_settings)
+    _hud_draw_handle = bpy.types.SpaceView3D.draw_handler_add(
+        _draw_activity_hud, (), "WINDOW", "POST_PIXEL")
     bpy.app.handlers.load_pre.append(_on_load)
 
 
 def unregister():
+    global _hud_draw_handle
     stop()
     _clear_feedback()
+    _clear_activity()
+    if _hud_draw_handle is not None:
+        bpy.types.SpaceView3D.draw_handler_remove(_hud_draw_handle, "WINDOW")
+        _hud_draw_handle = None
     if _on_load in bpy.app.handlers.load_pre:
         bpy.app.handlers.load_pre.remove(_on_load)
+    if hasattr(bpy.types.WindowManager, "astro_modeler_activity_settings"):
+        del bpy.types.WindowManager.astro_modeler_activity_settings
     for cls in reversed(_classes):
         bpy.utils.unregister_class(cls)

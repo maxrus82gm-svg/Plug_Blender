@@ -85,6 +85,31 @@ class BridgeTests(unittest.TestCase):
         self.assertFalse(result["success"])
         self.assertIn("Object Mode", result["message"])
 
+    def test_activity_counts_each_accepted_public_invocation_once(self):
+        events = []
+        self.bridge.activity_callback = lambda command, outcome: events.append((command, outcome))
+        self.bridge.get_selected_context = lambda: {"selected_objects": []}
+        self.bridge.create_box_at_cursor = lambda *_: "Box"
+        self.bridge.post_modeling_note = lambda *_: None
+        requests = (
+            self.request(),
+            self.request(command="get_selected_context"),
+            self.request(command="create_box_at_cursor", size_x=2, size_y=3, size_z=4),
+            self.request(command="post_modeling_note", status="OK", summary="Done"),
+        )
+        for request in requests:
+            self.assertTrue(self.exchange(request)["success"])
+        self.assertEqual(events, [event for request in requests
+                                  for event in ((request["command"], None), (request["command"], "OK"))])
+
+        self.assertFalse(self.exchange(self.request(
+            command="create_box_at_cursor", size_x=0, size_y=3, size_z=4))["success"])
+        self.assertEqual(events[-2:], [("create_box_at_cursor", None), ("create_box_at_cursor", "ERROR")])
+        before = list(events)
+        self.assertFalse(self.exchange(self.request(token="bad"))["success"])
+        self.assertFalse(self.exchange(self.request(command="unknown"))["success"])
+        self.assertEqual(events, before)
+
     def test_second_session_cannot_claim_endpoint(self):
         other = bridge_module.Bridge(lambda: "Bad", self.path, port=self.session["port"])
         with self.assertRaises(OSError):

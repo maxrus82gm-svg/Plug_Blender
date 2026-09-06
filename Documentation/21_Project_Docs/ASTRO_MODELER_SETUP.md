@@ -15,7 +15,7 @@ python -m venv .venv
 
 Каноническая identity development build хранится только в `Plugins/AstroModeler/astro_modeler/version.py`: `PRODUCT_VERSION`, `BUILD_NUMBER`, вычисляемый `FULL_VERSION`. Add-on использует product tuple для совместимого `bl_info`, а `FULL_VERSION` — для имени ZIP и видимой build identity. Сборка создаётся в `<repo>/dist/astro_modeler-<FULL_VERSION>.zip` и включает `version.py`.
 
-Versioned artifacts не перезаписываются и не удаляются автоматически. Если ZIP текущего `FULL_VERSION` уже существует, build завершается ошибкой и требует увеличить `BUILD_NUMBER`: один version string соответствует одному конкретному artifact. Исторический `dist/astro_modeler-0.1.0.zip` сохраняется; первый versioned development build — `dist/astro_modeler-0.1.0.1.zip`.
+Versioned artifacts не перезаписываются и не удаляются автоматически. Если ZIP текущего `FULL_VERSION` уже существует, build завершается ошибкой и требует увеличить `BUILD_NUMBER`: один version string соответствует одному конкретному artifact. Исторические `dist/astro_modeler-0.1.0.zip` и `dist/astro_modeler-0.1.0.1.zip` сохраняются; текущий development build — `dist/astro_modeler-0.1.0.2.zip`.
 
 MCP использует официальный Python SDK `mcp==1.29.1` и его FastMCP v1 API. Прямая зависимость закреплена; транзитивные версии разрешает pip, полного lockfile в прототипе нет. Add-on использует только Blender `bpy` и стандартную библиотеку, установка pip-пакетов внутрь Blender не нужна. Сведения об SDK: [официальный Python SDK MCP](https://github.com/modelcontextprotocol/python-sdk/tree/v1.x).
 
@@ -56,6 +56,8 @@ Codex запускает MCP server как STDIO subprocess сам; запуск
 - `get_selected_context()` — компактный read-only контекст selection, active object и 3D Cursor без mesh data;
 - `create_box_at_cursor(size_x, size_y, size_z)` — world-aligned Box в позиции Cursor;
 - `post_modeling_note(status, summary, details="")` — сообщение в `AGENT FEEDBACK LOG` Blender.
+
+`AGENT ACTIVITY` в той же N-panel автоматически показывает последний фактически принятый bridge command, его outcome и runtime counts использованных tools. Зелёный viewport HUD остаётся видимым три секунды после вызова. Native controls позволяют включить HUD, выбрать размер и цвет текста; `Clear Statistics` очищает только activity telemetry и не трогает Feedback или Scene. Stop/Start сохраняют counts текущего Blender process, загрузка другого `.blend` скрывает прежнюю activity, полный restart начинает новую telemetry session. Эти сведения локальны, не являются public MCP tool и не добавляются в model context.
 
 Пример результата `create_cube`:
 

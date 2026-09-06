@@ -9,6 +9,7 @@ import re
 import runpy
 import sys
 import threading
+import time
 
 import bpy
 
@@ -30,6 +31,7 @@ import astro_modeler
 assert Path(astro_modeler.__file__).resolve().is_relative_to(RUNTIME.resolve())
 assert astro_modeler.FULL_VERSION == expected_version
 assert astro_modeler._loaded_version_label() == f"Version: {expected_version}"
+assert astro_modeler._hud_draw_handle is not None
 astro_modeler.Bridge = partial(astro_modeler.Bridge, port=0)
 descriptor = RUNTIME / "box-session.json"
 events = []
@@ -176,6 +178,27 @@ def control():
                         area.tag_redraw()
         elif action == "feedback_state":
             pass
+        elif action == "activity_state":
+            pass
+        elif action == "activity_timeout":
+            assert astro_modeler._activity_hud_visible()
+            astro_modeler._hud_until = time.monotonic() - 0.01
+            assert not astro_modeler._activity_hud_visible()
+            assert astro_modeler._hud_timeout_tick() is None
+        elif action == "activity_settings":
+            before = astro_modeler._get_selected_context()
+            dirty = bpy.data.is_dirty
+            settings = bpy.context.window_manager.astro_modeler_activity_settings
+            settings.show_hud = request["show_hud"]
+            settings.text_size = request["text_size"]
+            settings.text_color = request["text_color"]
+            assert astro_modeler._get_selected_context() == before and bpy.data.is_dirty == dirty
+        elif action == "clear_activity":
+            before = astro_modeler._get_selected_context()
+            dirty = bpy.data.is_dirty
+            assert "FINISHED" in bpy.ops.astro_modeler.clear_activity()
+            assert not astro_modeler._activity_counts and astro_modeler._last_activity is None
+            assert astro_modeler._get_selected_context() == before and bpy.data.is_dirty == dirty
         elif action == "toggle_first_feedback":
             note = astro_modeler._feedback[0]
             before = astro_modeler._get_selected_context()
@@ -220,12 +243,24 @@ def control():
             assert "FINISHED" in bpy.ops.preferences.addon_disable(module="astro_modeler")
             assert astro_modeler._bridge is None and not descriptor.exists()
             assert not bpy.app.timers.is_registered(astro_modeler._tick)
+            assert astro_modeler._hud_draw_handle is None
             bpy.app.timers.register(lambda: bpy.ops.wm.quit_blender() and None, first_interval=1)
         else:
             assert action == "snapshot"
         result = {"nonce": nonce, "success": True, **state()}
         if action == "feedback_state":
             result.update(notes=list(astro_modeler._feedback), note_checks=len(note_checks), dirty=bpy.data.is_dirty)
+        if action in {"activity_state", "activity_timeout", "activity_settings", "clear_activity"}:
+            settings = getattr(bpy.context.window_manager, "astro_modeler_activity_settings", None)
+            result.update(activity_counts=dict(astro_modeler._activity_counts),
+                          last_activity=astro_modeler._last_activity,
+                          hud_text=astro_modeler._activity_hud_text(),
+                          hud_handler=astro_modeler._hud_draw_handle is not None,
+                          hud_settings=None if settings is None else {
+                              "show_hud": settings.show_hud,
+                              "text_size": settings.text_size,
+                              "text_color": list(settings.text_color),
+                          }, dirty=bpy.data.is_dirty)
     except Exception as exc:
         result = {"nonce": nonce, "success": False, "error": repr(exc)}
     (RUNTIME / "box-state.json").write_text(json.dumps(result), encoding="utf-8")

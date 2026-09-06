@@ -44,16 +44,26 @@ def validate_note(status, summary, details):
 
 
 class Bridge:
-    def __init__(self, create_cube, session_file=None, port=PORT, get_selected_context=None, create_box_at_cursor=None, post_modeling_note=None):
+    def __init__(self, create_cube, session_file=None, port=PORT, get_selected_context=None,
+                 create_box_at_cursor=None, post_modeling_note=None, activity_callback=None):
         self.create_cube = create_cube
         self.get_selected_context = get_selected_context
         self.create_box_at_cursor = create_box_at_cursor
         self.post_modeling_note = post_modeling_note
+        self.activity_callback = activity_callback
         self.session_file = Path(session_file or default_session_file()).resolve()
         self.port = port
         self.listener = None
         self.clients = {}
         self.token = None
+
+    def _activity(self, command, outcome):
+        if self.activity_callback is not None:
+            try:
+                self.activity_callback(command, outcome)
+            except Exception:
+                # Telemetry must never change the command result.
+                pass
 
     def start(self):
         if self.listener is not None:
@@ -95,39 +105,48 @@ class Bridge:
             request = json.loads(raw.decode("utf-8"))
             if not isinstance(request, dict):
                 raise ValueError("Expected a command object.")
+            command = request.get("command")
             expected = {"command", "token"}
-            if request.get("command") == "create_box_at_cursor":
+            if command == "create_box_at_cursor":
                 expected |= {"size_x", "size_y", "size_z"}
-            if request.get("command") == "post_modeling_note":
+            if command == "post_modeling_note":
                 expected |= {"status", "summary"}
                 if "details" in request:
                     expected.add("details")
-            if set(request) != expected:
-                raise ValueError("Unexpected or missing command fields.")
             token = request["token"]
             if not isinstance(token, str) or not secrets.compare_digest(token, self.token):
                 raise ValueError("Invalid session token. Restart the integration connection.")
-            if request["command"] == "post_modeling_note":
-                args = (request["status"], request["summary"], request.get("details", ""))
-                validate_note(*args)
-                if self.post_modeling_note is None:
-                    raise RuntimeError("Agent Feedback unavailable. Update the Astro Modeler add-on.")
-                self.post_modeling_note(*args)
-                return {"success": True, "message": "Agent feedback posted to Blender."}
-            if request["command"] == "create_box_at_cursor":
-                sizes = validate_box_sizes(*(request[key] for key in ("size_x", "size_y", "size_z")))
-                if self.create_box_at_cursor is None:
-                    raise RuntimeError("Box placement unavailable. Update the Astro Modeler add-on.")
-                name = self.create_box_at_cursor(*sizes)
-                return {"success": True, "object_name": name, "message": "Box created at the 3D Cursor; selected and active."}
-            if request["command"] == "get_selected_context":
-                if self.get_selected_context is None:
-                    raise RuntimeError("Selected context unavailable. Update the Astro Modeler add-on.")
-                return {"success": True, "context": self.get_selected_context(), "message": "Selected context read."}
-            if request["command"] != "create_cube":
+            if command not in {"create_cube", "get_selected_context", "create_box_at_cursor", "post_modeling_note"}:
                 raise ValueError("Only create_cube, get_selected_context, create_box_at_cursor and post_modeling_note are supported.")
-            name = self.create_cube()
-            return {"success": True, "object_name": name, "message": "Cube created in the current scene."}
+            self._activity(command, None)
+            try:
+                if set(request) != expected:
+                    raise ValueError("Unexpected or missing command fields.")
+                if command == "post_modeling_note":
+                    args = (request["status"], request["summary"], request.get("details", ""))
+                    validate_note(*args)
+                    if self.post_modeling_note is None:
+                        raise RuntimeError("Agent Feedback unavailable. Update the Astro Modeler add-on.")
+                    self.post_modeling_note(*args)
+                    result = {"success": True, "message": "Agent feedback posted to Blender."}
+                elif command == "create_box_at_cursor":
+                    sizes = validate_box_sizes(*(request[key] for key in ("size_x", "size_y", "size_z")))
+                    if self.create_box_at_cursor is None:
+                        raise RuntimeError("Box placement unavailable. Update the Astro Modeler add-on.")
+                    name = self.create_box_at_cursor(*sizes)
+                    result = {"success": True, "object_name": name, "message": "Box created at the 3D Cursor; selected and active."}
+                elif command == "get_selected_context":
+                    if self.get_selected_context is None:
+                        raise RuntimeError("Selected context unavailable. Update the Astro Modeler add-on.")
+                    result = {"success": True, "context": self.get_selected_context(), "message": "Selected context read."}
+                else:
+                    name = self.create_cube()
+                    result = {"success": True, "object_name": name, "message": "Cube created in the current scene."}
+            except Exception:
+                self._activity(command, "ERROR")
+                raise
+            self._activity(command, "OK")
+            return result
         except Exception as exc:
             # Never echo the request/token or provide an arbitrary Python operation.
             message = str(exc) if isinstance(exc, (ValueError, RuntimeError)) else "Invalid request or Blender operation failed."
