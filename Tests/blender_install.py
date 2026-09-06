@@ -8,6 +8,7 @@ import json
 from functools import partial
 import os
 from pathlib import Path
+import runpy
 
 import bpy
 
@@ -17,12 +18,16 @@ for variable in ("BLENDER_USER_SCRIPTS", "BLENDER_USER_CONFIG", "BLENDER_USER_EX
     path = Path(os.environ[variable]).resolve()
     assert path.is_relative_to(RUNTIME.resolve()), "Use isolated test preferences."
 
-archive = ROOT / "dist/astro_modeler-0.1.0.zip"
+expected_version = runpy.run_path(
+    ROOT / "Plugins/AstroModeler/astro_modeler/version.py")["FULL_VERSION"]
+archive = ROOT / "dist" / f"astro_modeler-{expected_version}.zip"
 assert "FINISHED" in bpy.ops.preferences.addon_install(filepath=str(archive))
 assert "FINISHED" in bpy.ops.preferences.addon_enable(module="astro_modeler")
 import astro_modeler
 
 assert Path(astro_modeler.__file__).resolve().is_relative_to(RUNTIME.resolve())
+assert astro_modeler.FULL_VERSION == expected_version
+assert astro_modeler._loaded_version_label() == f"Version: {expected_version}"
 astro_modeler.Bridge = partial(astro_modeler.Bridge, port=0)
 descriptor = RUNTIME / "install-session.json"
 astro_modeler.start(descriptor)

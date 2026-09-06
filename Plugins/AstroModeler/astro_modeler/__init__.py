@@ -1,8 +1,13 @@
 """Astro Modeler: explicitly connect one Blender session to the local MCP bridge."""
 
+from .version import FULL_VERSION, PRODUCT_VERSION
+
 bl_info = {
     "name": "Astro Modeler",
     "author": "Plug_Blender contributors",
+    # Blender requires bl_info to contain literals so addon_utils can parse it.
+    # package_addon.py rejects a build if this compatibility tuple diverges
+    # from the authoritative PRODUCT_VERSION in version.py.
     "version": (0, 1, 0),
     "blender": (5, 0, 0),
     "location": "3D View > Sidebar > Astro Modeler",
@@ -85,6 +90,10 @@ def _details_display_lines(details, width, expanded=False):
     preview = lines[:3]
     preview[-1] = preview[-1].rstrip() + "…"
     return preview, True
+
+
+def _loaded_version_label():
+    return f"Version: {FULL_VERSION}"
 
 
 def _create_cube():
@@ -287,6 +296,7 @@ class ASTRO_MODELER_PT_status(bpy.types.Panel):
 
     def draw(self, context):
         layout = self.layout
+        layout.label(text=_loaded_version_label(), icon="INFO")
         layout.label(text=_last_message)
         if _bridge is None:
             layout.operator("astro_modeler.start")

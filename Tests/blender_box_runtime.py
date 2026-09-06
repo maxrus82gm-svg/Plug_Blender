@@ -6,6 +6,7 @@ import math
 import os
 from pathlib import Path
 import re
+import runpy
 import sys
 import threading
 
@@ -19,11 +20,16 @@ for variable in ("BLENDER_USER_SCRIPTS", "BLENDER_USER_CONFIG", "BLENDER_USER_EX
     assert Path(os.environ[variable]).resolve().is_relative_to(RUNTIME.resolve())
 for name in ("box-control.json", "box-state.json", "box-events.json", "codex-box-result.json"):
     (RUNTIME / name).unlink(missing_ok=True)
-assert "FINISHED" in bpy.ops.preferences.addon_install(filepath=str(ROOT / "dist/astro_modeler-0.1.0.zip"))
+expected_version = runpy.run_path(
+    ROOT / "Plugins/AstroModeler/astro_modeler/version.py")["FULL_VERSION"]
+addon_zip = ROOT / "dist" / f"astro_modeler-{expected_version}.zip"
+assert "FINISHED" in bpy.ops.preferences.addon_install(filepath=str(addon_zip))
 assert "FINISHED" in bpy.ops.preferences.addon_enable(module="astro_modeler")
 import astro_modeler
 
 assert Path(astro_modeler.__file__).resolve().is_relative_to(RUNTIME.resolve())
+assert astro_modeler.FULL_VERSION == expected_version
+assert astro_modeler._loaded_version_label() == f"Version: {expected_version}"
 astro_modeler.Bridge = partial(astro_modeler.Bridge, port=0)
 descriptor = RUNTIME / "box-session.json"
 events = []
@@ -127,7 +133,8 @@ def state():
     return {"objects": len(bpy.data.objects), "meshes": len(bpy.data.meshes),
             "box_calls": len(events), "mode": bpy.context.mode,
             "cursor": list(bpy.context.scene.cursor.location),
-            "active": bpy.context.view_layer.objects.active.name}
+            "active": bpy.context.view_layer.objects.active.name,
+            "full_version": astro_modeler.FULL_VERSION}
 
 
 def control():
@@ -155,6 +162,9 @@ def control():
             obj = bpy.context.object
             assert obj.name.startswith("Cube") and len(obj.data.vertices) == 8
             assert tuple(obj.location) == (0, 0, 0) and tuple(obj.dimensions) == (2, 2, 2)
+        elif action == "version_check":
+            assert astro_modeler.FULL_VERSION == expected_version
+            assert astro_modeler._loaded_version_label() == f"Version: {expected_version}"
         elif action == "prepare_feedback":
             assert not astro_modeler._feedback, "Geometry callbacks must not auto-post feedback"
             bpy.ops.wm.save_as_mainfile(filepath=str(RUNTIME / "feedback-smoke.blend"))
@@ -226,6 +236,7 @@ bpy.app.timers.register(control, first_interval=0.1, persistent=True)
 (RUNTIME / "box-api.json").write_text(json.dumps({
     "blender": bpy.app.version_string, "background": bpy.app.background,
     "cursor_location_api": bpy.types.View3DCursor.bl_rna.properties["location"].description,
-    "installed_addon": astro_modeler.__file__,
+    "installed_addon": astro_modeler.__file__, "installed_zip": str(addon_zip),
+    "full_version": astro_modeler.FULL_VERSION,
 }), encoding="utf-8")
 print("BOX FIXTURE READY", flush=True)

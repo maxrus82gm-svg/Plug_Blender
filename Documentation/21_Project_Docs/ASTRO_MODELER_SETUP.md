@@ -13,16 +13,21 @@ python -m venv .venv
 .\.venv\Scripts\python.exe Plugins/AstroModeler/package_addon.py
 ```
 
+Каноническая identity development build хранится только в `Plugins/AstroModeler/astro_modeler/version.py`: `PRODUCT_VERSION`, `BUILD_NUMBER`, вычисляемый `FULL_VERSION`. Add-on использует product tuple для совместимого `bl_info`, а `FULL_VERSION` — для имени ZIP и видимой build identity. Сборка создаётся в `<repo>/dist/astro_modeler-<FULL_VERSION>.zip` и включает `version.py`.
+
+Versioned artifacts не перезаписываются и не удаляются автоматически. Если ZIP текущего `FULL_VERSION` уже существует, build завершается ошибкой и требует увеличить `BUILD_NUMBER`: один version string соответствует одному конкретному artifact. Исторический `dist/astro_modeler-0.1.0.zip` сохраняется; первый versioned development build — `dist/astro_modeler-0.1.0.1.zip`.
+
 MCP использует официальный Python SDK `mcp==1.29.1` и его FastMCP v1 API. Прямая зависимость закреплена; транзитивные версии разрешает pip, полного lockfile в прототипе нет. Add-on использует только Blender `bpy` и стандартную библиотеку, установка pip-пакетов внутрь Blender не нужна. Сведения об SDK: [официальный Python SDK MCP](https://github.com/modelcontextprotocol/python-sdk/tree/v1.x).
 
 ## Установка в Blender
 
-1. Собери `dist/astro_modeler-0.1.0.zip` предыдущей командой.
-2. В Blender открой Edit → Preferences → Add-ons → меню → Install from Disk и выбери этот ZIP. Это обычный legacy add-on с `bl_info`; архив содержит пакет `astro_modeler/`.
-3. Включи Astro Modeler. В 3D View открой Sidebar клавишей N → Astro Modeler.
-4. В нужной сцене выбери Object Mode и нажми **Start Integration**. Статус: `Listening on localhost`.
+1. Прочитай `FULL_VERSION` в `version.py` и собери соответствующий `dist/astro_modeler-<FULL_VERSION>.zip`.
+2. В Blender открой Edit → Preferences → Add-ons → меню → Install from Disk и выбери именно этот versioned ZIP. Это обычный legacy add-on с `bl_info`; архив содержит пакет `astro_modeler/`.
+3. После обновления add-on полностью перезапусти Blender.
+4. Включи Astro Modeler. В 3D View открой Sidebar клавишей N → Astro Modeler и проверь постоянную строку `Version: <FULL_VERSION>`.
+5. Версия в panel должна точно совпадать с версией имени проверяемого ZIP. Только после этого в нужной сцене выбери Object Mode и нажми **Start Integration**. Статус: `Listening on localhost`.
 
-После обновления Python-кода установленного add-on Blender может продолжать использовать уже загруженную старую версию модуля. Если поведение не соответствует свежему source или ZIP, полностью перезапусти Blender до вывода, что новый код не работает.
+Если имя ZIP и `Version` в panel не совпадают, это ENVIRONMENT / STALE INSTALLATION issue. Не продолжай runtime/manual visual acceptance и не исправляй production code до установки точного ZIP и полного restart Blender. Строка panel показывает identity реально загруженного Python add-on, а не версию внешнего файла на диске.
 
 Порядок установки ZIP описан в [руководстве Blender по Add-ons](https://docs.blender.org/manual/en/4.4/editors/preferences/addons.html). Сам ZIP дополнительно проверен через операторы install/enable в Blender 5.0.1 с изолированным пользовательским каталогом.
 

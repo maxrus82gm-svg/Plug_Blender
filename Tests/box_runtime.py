@@ -80,7 +80,7 @@ async def run_real_sol_feedback():
     assert process.returncode == 0, output.decode("utf-8", errors="replace")
 
 
-async def main(real_sol=False, visual_only=False, compact_ui=False):
+async def main(real_sol=False, visual_only=False, compact_ui=False, version_only=False):
     params = StdioServerParameters(command=sys.executable,
         args=[str(ROOT / "MCP/server.py"), "--session-file", str(DESCRIPTOR),
               "--feedback-log", str(RUNTIME / "box-agent-feedback.jsonl")])
@@ -90,6 +90,12 @@ async def main(real_sol=False, visual_only=False, compact_ui=False):
             await session.initialize()
             names = {t.name for t in (await session.list_tools()).tools}
             assert names == {"create_cube", "get_selected_context", "create_box_at_cursor", "post_modeling_note"}
+            if version_only:
+                state = await control("version_check")
+                await control("finish")
+                print(json.dumps({"success": True, "full_version": state["full_version"]},
+                                 ensure_ascii=False))
+                return
             if compact_ui:
                 await control("prepare_feedback")
                 before = await control("snapshot")
@@ -259,5 +265,6 @@ if __name__ == "__main__":
     parser.add_argument("--real-sol", action="store_true")
     parser.add_argument("--visual-only", action="store_true")
     parser.add_argument("--compact-ui", action="store_true")
+    parser.add_argument("--version-only", action="store_true")
     args = parser.parse_args()
-    asyncio.run(main(args.real_sol, args.visual_only, args.compact_ui))
+    asyncio.run(main(args.real_sol, args.visual_only, args.compact_ui, args.version_only))
